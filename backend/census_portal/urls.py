@@ -30,9 +30,20 @@ def health_check(request):
         }, status=500)
 
 
+def seed_users(request):
+    """Temporary endpoint to seed users manually"""
+    from django.core.management import call_command
+    from django.http import JsonResponse
+    try:
+        call_command('seed_initial_data')
+        return JsonResponse({'status': 'success', 'message': 'Users seeded successfully'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/v1/health/', health_check, name='health_check'),
+    path('api/v1/seed_users/', seed_users, name='seed_users'),
     path('api/v1/auth/', include('accounts.urls')),
     path('api/v1/users/', include('accounts.user_urls')),
     path('api/v1/surveys/', include('surveys.urls')),
