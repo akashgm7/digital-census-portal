@@ -7,8 +7,27 @@ from django.http import JsonResponse
 
 
 def health_check(request):
-    """Health check endpoint"""
-    return JsonResponse({'status': 'healthy', 'service': 'Digital Census Portal'})
+    """Health check endpoint with diagnostics"""
+    from django.contrib.auth import get_user_model
+    from django.conf import settings
+    
+    try:
+        User = get_user_model()
+        user_count = User.objects.count()
+        db_engine = settings.DATABASES['default']['ENGINE']
+        dev_mode = getattr(settings, 'FIREBASE_AUTH_DEV_MODE', False)
+        
+        return JsonResponse({
+            "status": "healthy", 
+            "users": user_count,
+            "db": db_engine,
+            "dev_mode": dev_mode
+        })
+    except Exception as e:
+        return JsonResponse({
+            "status": "error",
+            "error": str(e)
+        }, status=500)
 
 
 urlpatterns = [
