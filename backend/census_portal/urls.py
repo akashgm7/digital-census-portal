@@ -31,12 +31,13 @@ def health_check(request):
 
 
 def seed_users(request):
-    """Temporary endpoint to seed users manually"""
+    """Temporary endpoint to migrate DB and seed users manually"""
     from django.core.management import call_command
     from django.http import JsonResponse
     try:
+        call_command('migrate')
         call_command('seed_initial_data')
-        return JsonResponse({'status': 'success', 'message': 'Users seeded successfully'})
+        return JsonResponse({'status': 'success', 'message': 'Database migrated and users seeded successfully'})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
