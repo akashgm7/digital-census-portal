@@ -143,6 +143,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
     "https://census-portal-karnataka.web.app",
     "https://census-portal-karnataka.firebaseapp.com",
+    "https://web-production-8ca79.up.railway.app",
 ]
 
 # Allow Railway domain pattern
