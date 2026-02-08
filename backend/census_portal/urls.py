@@ -6,6 +6,23 @@ from django.urls import path, include
 from django.http import JsonResponse
 
 
+def api_root(request):
+    """Root endpoint - returns API info"""
+    return JsonResponse({
+        "name": "Digital Census Portal API",
+        "version": "1.0",
+        "status": "running",
+        "endpoints": {
+            "health": "/api/v1/health/",
+            "auth": "/api/v1/auth/",
+            "users": "/api/v1/users/",
+            "surveys": "/api/v1/surveys/",
+            "addresses": "/api/v1/addresses/",
+            "analytics": "/api/v1/analytics/"
+        }
+    })
+
+
 def health_check(request):
     """Health check endpoint with diagnostics"""
     from django.contrib.auth import get_user_model
@@ -42,6 +59,7 @@ def seed_users(request):
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
 urlpatterns = [
+    path('', api_root, name='api_root'),
     path('admin/', admin.site.urls),
     path('api/v1/health/', health_check, name='health_check'),
     path('api/v1/seed_users/', seed_users, name='seed_users'),
