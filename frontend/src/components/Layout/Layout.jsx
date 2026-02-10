@@ -41,22 +41,42 @@ function Layout() {
     return (
         <div className="page">
             {/* Header */}
-            <header className="header">
-                <h1 className="header-title">Digital Census Portal</h1>
+            <header className="header glass">
+                <div className="header-left">
+                    <h1 className="header-title">Digital Census</h1>
+                </div>
+
                 <div className="header-info">
-                    <span className="header-role">{user?.role}</span>
                     {user?.zoneName && (
                         <span className="header-zone">{user.zoneName}</span>
                     )}
-                    <NavLink to="/profile" className="header-profile-link" style={{ color: 'white', textDecoration: 'none', fontWeight: 'bold' }}>
-                        {user?.fullName}
+
+                    <NavLink
+                        to="/profile"
+                        className="header-profile-link"
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                    >
+                        <div style={{
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '50%',
+                            background: 'var(--gradient-primary)',
+                            color: 'white',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '14px',
+                            fontWeight: 'bold'
+                        }}>
+                            {user?.fullName?.charAt(0)}
+                        </div>
+                        <span>{user?.fullName}</span>
                     </NavLink>
+
                     <button className="btn btn-secondary" onClick={handleLogout} style={{
-                        padding: '8px 16px',
-                        minHeight: 'auto',
-                        minWidth: 'auto',
-                        color: 'white',
-                        borderColor: 'white'
+                        padding: '0.5rem 1rem',
+                        fontSize: '0.75rem',
+                        border: '1px solid var(--color-border)'
                     }}>
                         Logout
                     </button>

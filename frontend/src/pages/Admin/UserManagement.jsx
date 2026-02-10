@@ -18,6 +18,11 @@ function UserManagement() {
         daily_target: 10
     });
 
+    // Filter State
+    const [searchTerm, setSearchTerm] = useState('');
+    const [filterRole, setFilterRole] = useState('');
+    const [filterZone, setFilterZone] = useState('');
+
     useEffect(() => {
         fetchData();
     }, []);
@@ -25,13 +30,15 @@ function UserManagement() {
     const fetchData = async () => {
         try {
             const [usersRes, zonesRes] = await Promise.all([
-                userAPI.list(),
+                userAPI.list(), // Now returns all users (no pagination)
                 zoneAPI.list()
             ]);
-            setUsers(usersRes.data.results || usersRes.data);
-            setZones(zonesRes.data.results || zonesRes.data);
+            // Handle both paginated (just in case) and non-paginated responses
+            setUsers(usersRes.data.results || usersRes.data || []);
+            setZones(zonesRes.data.results || zonesRes.data || []);
         } catch (err) {
             setError('Failed to load data.');
+            console.error(err);
         }
         setLoading(false);
     };
@@ -68,18 +75,74 @@ function UserManagement() {
         }
     };
 
+    // Filter Logic
+    const filteredUsers = users.filter(user => {
+        const matchesSearch = searchTerm === '' ||
+            user.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            user.phone_number.includes(searchTerm);
+
+        const matchesRole = filterRole === '' || user.role === filterRole;
+
+        const matchesZone = filterZone === '' || (user.zone && user.zone.toString() === filterZone) || (user.zone_id && user.zone_id.toString() === filterZone);
+
+        return matchesSearch && matchesRole && matchesZone;
+    });
+
     if (loading) return <div className="loading-container"><div className="spinner"></div></div>;
 
     return (
         <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                <h2>User Management</h2>
+                <h2>User Management <span className="badge badge-info">{filteredUsers.length} Users</span></h2>
                 <button className="btn btn-primary" onClick={() => setShowCreateForm(!showCreateForm)}>
                     {showCreateForm ? 'Cancel' : 'Add New User'}
                 </button>
             </div>
 
             {error && <div className="alert alert-error">{error}</div>}
+
+            {!showCreateForm && (
+                <div className="card" style={{ marginBottom: '24px', padding: '16px' }}>
+                    <div className="grid grid-3" style={{ gap: '16px' }}>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                            <label className="form-label">Search</label>
+                            <input
+                                type="text"
+                                className="form-input"
+                                placeholder="Search by name or phone..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                            <label className="form-label">Filter by Role</label>
+                            <select
+                                className="form-input form-select"
+                                value={filterRole}
+                                onChange={(e) => setFilterRole(e.target.value)}
+                            >
+                                <option value="">All Roles</option>
+                                <option value="ADMIN">Admin</option>
+                                <option value="SUPERVISOR">Supervisor</option>
+                                <option value="SURVEYOR">Surveyor</option>
+                            </select>
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                            <label className="form-label">Filter by Zone</label>
+                            <select
+                                className="form-input form-select"
+                                value={filterZone}
+                                onChange={(e) => setFilterZone(e.target.value)}
+                            >
+                                <option value="">All Zones</option>
+                                {zones.map(zone => (
+                                    <option key={zone.id} value={zone.id}>{zone.name} ({zone.code})</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {showCreateForm && (
                 <div className="card" style={{ marginBottom: '24px' }}>
@@ -163,39 +226,47 @@ function UserManagement() {
                             </tr>
                         </thead>
                         <tbody>
-                            {users.map(user => (
-                                <tr key={user.id}>
-                                    <td>{user.full_name}</td>
-                                    <td>{user.phone_number}</td>
-                                    <td><span className="badge badge-draft">{user.role}</span></td>
-                                    <td>{user.zone_name || '-'}</td>
-                                    <td>{user.daily_target}</td>
-                                    <td>
-                                        <span className={`badge ${user.is_active ? 'badge-verified' : 'badge-flagged'}`}>
-                                            {user.is_active ? 'Active' : 'Blocked'}
-                                        </span>
-                                    </td>
-                                    <td>
-                                        {user.is_active ? (
-                                            <button
-                                                className="btn btn-danger"
-                                                style={{ padding: '4px 12px', minHeight: 'auto', minWidth: 'auto' }}
-                                                onClick={() => handleBlock(user.id)}
-                                            >
-                                                Block
-                                            </button>
-                                        ) : (
-                                            <button
-                                                className="btn btn-success"
-                                                style={{ padding: '4px 12px', minHeight: 'auto', minWidth: 'auto' }}
-                                                onClick={() => handleUnblock(user.id)}
-                                            >
-                                                Unblock
-                                            </button>
-                                        )}
+                            {filteredUsers.length > 0 ? (
+                                filteredUsers.map(user => (
+                                    <tr key={user.id}>
+                                        <td>{user.full_name}</td>
+                                        <td>{user.phone_number}</td>
+                                        <td><span className="badge badge-draft">{user.role}</span></td>
+                                        <td>{user.zone_name || '-'}</td>
+                                        <td>{user.daily_target}</td>
+                                        <td>
+                                            <span className={`badge ${user.is_active ? 'badge-verified' : 'badge-flagged'}`}>
+                                                {user.is_active ? 'Active' : 'Blocked'}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            {user.is_active ? (
+                                                <button
+                                                    className="btn btn-danger"
+                                                    style={{ padding: '4px 12px', minHeight: 'auto', minWidth: 'auto' }}
+                                                    onClick={() => handleBlock(user.id)}
+                                                >
+                                                    Block
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    className="btn btn-success"
+                                                    style={{ padding: '4px 12px', minHeight: 'auto', minWidth: 'auto' }}
+                                                    onClick={() => handleUnblock(user.id)}
+                                                >
+                                                    Unblock
+                                                </button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))
+                            ) : (
+                                <tr>
+                                    <td colSpan="7" style={{ textAlign: 'center', padding: '24px' }}>
+                                        No users found matching your filters.
                                     </td>
                                 </tr>
-                            ))}
+                            )}
                         </tbody>
                     </table>
                 </div>

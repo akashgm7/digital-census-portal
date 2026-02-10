@@ -22,8 +22,11 @@ class UserViewSet(viewsets.ModelViewSet):
     Admin-only user management ViewSet.
     Supports CRUD operations and bulk CSV upload.
     """
-    queryset = User.objects.select_related('zone').all()
+    queryset = User.objects.select_related('zone').all().order_by('id')
     permission_classes = [IsAdmin]
+    pagination_class = None
+    filterset_fields = ['role', 'zone']
+    search_fields = ['full_name', 'phone_number']
     
     def get_serializer_class(self):
         if self.action == 'create':

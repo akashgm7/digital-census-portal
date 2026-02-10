@@ -68,18 +68,21 @@ class MasterAddressViewSet(DataIsolationMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Check if pincode exists in user's zone
+        # Check if pincode matches user's zone code in a case-insensitive way (just to be safe)
         if user.role != 'ADMIN':
+            # Check if user has a zone and if the pincode matches
+            if not user.zone or user.zone.code != pincode:
+                 return Response(
+                    {'error': f'Pincode {pincode} does not match your assigned zone ({user.zone.code if user.zone else "No Zone"}).'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Fetch addresses if they exist (for suggestions)
             addresses = MasterAddress.objects.filter(
                 zone=user.zone,
                 pincode=pincode
             ).exclude(status='DEMOLISHED')
-            
-            if not addresses.exists():
-                return Response(
-                    {'error': f'Pincode {pincode} is not in your assigned zone.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+
         else:
             addresses = MasterAddress.objects.filter(pincode=pincode).exclude(status='DEMOLISHED')
         
