@@ -25,12 +25,25 @@ function VerifySurveys() {
     };
 
     const handleVerify = async (surveyId) => {
+        if (!window.confirm('Are you sure you want to verify and lock this survey? This action cannot be undone.')) {
+            return;
+        }
+
         try {
             await surveyAPI.verify(surveyId);
             fetchSurveys();
             setSelectedSurvey(null);
         } catch (err) {
-            setError('Failed to verify survey.');
+            // Extract detailed error
+            let errorMessage = 'Failed to verify survey.';
+            if (err.response?.data?.error) {
+                errorMessage = err.response.data.error;
+            } else if (err.response?.data?.detail) {
+                errorMessage = err.response.data.detail;
+            } else if (err.message) {
+                errorMessage = err.message;
+            }
+            setError(errorMessage);
         }
     };
 
@@ -40,7 +53,15 @@ function VerifySurveys() {
             fetchSurveys();
             setSelectedSurvey(null);
         } catch (err) {
-            setError('Failed to flag survey.');
+            let errorMessage = 'Failed to flag survey.';
+            if (err.response?.data?.error) {
+                errorMessage = err.response.data.error;
+            } else if (err.response?.data?.detail) {
+                errorMessage = err.response.data.detail;
+            } else if (err.message) {
+                errorMessage = err.message;
+            }
+            setError(errorMessage);
         }
     };
 
@@ -48,6 +69,12 @@ function VerifySurveys() {
         try {
             const response = await surveyAPI.get(surveyId);
             setSelectedSurvey(response.data);
+            // Scroll to details on mobile
+            if (window.innerWidth < 768) {
+                setTimeout(() => {
+                    document.getElementById('survey-details')?.scrollIntoView({ behavior: 'smooth' });
+                }, 100);
+            }
         } catch (err) {
             setError('Failed to load survey details.');
         }
@@ -103,7 +130,7 @@ function VerifySurveys() {
                 </div>
 
                 {/* Survey Details */}
-                <div className="card">
+                <div className="card" id="survey-details">
                     <h3 className="card-title">Survey Details</h3>
                     {selectedSurvey ? (
                         <div>
@@ -133,10 +160,11 @@ function VerifySurveys() {
                             <p><strong>Surveyor:</strong> {selectedSurvey.surveyor_name}</p>
                             <p><strong>Submitted:</strong> {new Date(selectedSurvey.submitted_at).toLocaleString()}</p>
 
-                            <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginTop: '24px' }}>
                                 <button
                                     className="btn btn-success"
                                     onClick={() => handleVerify(selectedSurvey.id)}
+                                    style={{ flex: '1 1 auto' }}
                                 >
                                     ✓ Verify & Lock
                                 </button>
@@ -144,8 +172,11 @@ function VerifySurveys() {
                                     className="btn btn-danger"
                                     onClick={() => {
                                         const reason = prompt('Enter reason for flagging:');
-                                        if (reason) handleFlag(selectedSurvey.id, reason);
+                                        if (reason !== null && reason.trim() !== '') {
+                                            handleFlag(selectedSurvey.id, reason);
+                                        }
                                     }}
+                                    style={{ flex: '1 1 auto' }}
                                 >
                                     ⚠ Flag for Review
                                 </button>

@@ -9,9 +9,11 @@ import useOnlineStatus from './hooks/useOnlineStatus';
 // Layout Components
 import Layout from './components/Layout/Layout';
 import ProtectedRoute from './components/Layout/ProtectedRoute';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Auth Pages
 import LoginPage from './pages/Login/LoginPage';
+import ProfilePage from './pages/Profile/ProfilePage';
 
 // Admin Pages
 import AdminDashboard from './pages/Admin/AdminDashboard';
@@ -58,7 +60,7 @@ function App() {
     };
 
     return (
-        <>
+        <ErrorBoundary>
             {/* Offline Banner */}
             {!isOnline && (
                 <div className="offline-banner">
@@ -77,6 +79,13 @@ function App() {
 
                 {/* Home redirect */}
                 <Route path="/" element={<Navigate to={getHomeRedirect()} replace />} />
+
+                {/* Profile Route - Accessible to all authenticated users */}
+                <Route path="/profile" element={
+                    <ProtectedRoute>
+                        <ProfilePage />
+                    </ProtectedRoute>
+                } />
 
                 {/* Admin Routes */}
                 <Route path="/admin" element={
@@ -115,7 +124,7 @@ function App() {
                 <Route path="/error" element={<ServerErrorPage />} />
                 <Route path="*" element={<NotFoundPage />} />
             </Routes>
-        </>
+        </ErrorBoundary>
     );
 }
 

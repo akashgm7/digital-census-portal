@@ -120,16 +120,27 @@ class SurveyViewSet(DataIsolationMixin, viewsets.ModelViewSet):
         gps_lat = float(serializer.validated_data['gps_latitude'])
         gps_lng = float(serializer.validated_data['gps_longitude'])
         
-        # Calculate distance from zone center
+        # Calculate distance from zone center (with null-safety)
         zone = survey.zone
-        zone_lat = float(zone.center_latitude)
-        zone_lng = float(zone.center_longitude)
+        location_warning = False
+        distance = 0
         
-        distance = self._calculate_distance(gps_lat, gps_lng, zone_lat, zone_lng)
-        
-        # Geo-fence check (5 meters threshold)
-        threshold = getattr(settings, 'GEOFENCE_WARNING_DISTANCE_METERS', 5)
-        location_warning = distance > threshold
+        if zone and zone.center_latitude is not None and zone.center_longitude is not None:
+            try:
+                zone_lat = float(zone.center_latitude)
+                zone_lng = float(zone.center_longitude)
+                distance = self._calculate_distance(gps_lat, gps_lng, zone_lat, zone_lng)
+                
+                # Geo-fence check (5 meters threshold)
+                threshold = getattr(settings, 'GEOFENCE_WARNING_DISTANCE_METERS', 5)
+                location_warning = distance > threshold
+            except (ValueError, TypeError):
+                # If coordinate conversion fails, flag as location warning
+                location_warning = True
+                distance = 0
+        else:
+            # Zone has no center coordinates - flag for review
+            location_warning = True
         
         # Update survey
         survey.gps_latitude = gps_lat

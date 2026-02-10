@@ -48,7 +48,9 @@ function Layout() {
                     {user?.zoneName && (
                         <span className="header-zone">{user.zoneName}</span>
                     )}
-                    <span>{user?.fullName}</span>
+                    <NavLink to="/profile" className="header-profile-link" style={{ color: 'white', textDecoration: 'none', fontWeight: 'bold' }}>
+                        {user?.fullName}
+                    </NavLink>
                     <button className="btn btn-secondary" onClick={handleLogout} style={{
                         padding: '8px 16px',
                         minHeight: 'auto',

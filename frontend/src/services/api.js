@@ -56,6 +56,9 @@ export const authAPI = {
 
     getMe: () =>
         api.get('/auth/me/'),
+
+    updateProfile: (data) =>
+        api.patch('/auth/me/', data),
 };
 
 // ============ USER APIs (Admin) ============

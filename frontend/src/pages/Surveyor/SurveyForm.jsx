@@ -28,21 +28,21 @@ const initialFormData = {
     head_phone: '',
     head_occupation: '',
     head_education: '',
-    // Members
+    // Members (matching backend model field names)
     total_members: 1,
     male_members: 1,
     female_members: 0,
+    other_members: 0,
     children_under_5: 0,
-    children_5_18: 0,
-    adults_18_60: 1,
-    senior_above_60: 0,
-    // Additional
-    income_range: '',
-    house_ownership: '',
-    water_source: '',
-    toilet_type: '',
-    cooking_fuel: '',
-    electricity: true,
+    children_5_to_18: 0,
+    senior_citizens: 0,
+    // Additional (matching backend model)
+    annual_income: '',
+    ownership_type: '',
+    has_water_connection: false,
+    has_toilet: false,
+    has_lpg: false,
+    has_electricity: true,
     // Notes
     remarks: ''
 };
@@ -162,39 +162,91 @@ function SurveyForm() {
         setError('');
 
         try {
-            // Get GPS position first
-            const gps = await getPosition();
+            // Try to get GPS position, but allow submission even if it fails
+            let gps = { latitude: 0, longitude: 0 };
+            let gpsError = null;
+
+            try {
+                gps = await getPosition();
+            } catch (gpsErr) {
+                // GPS failed - we'll still submit but with default coordinates
+                // The backend will flag this with location_warning
+                gpsError = typeof gpsErr === 'string' ? gpsErr : (gpsErr?.message || 'GPS unavailable');
+                console.warn('GPS capture failed, submitting with default coordinates:', gpsError);
+            }
 
             let response;
             if (surveyId) {
                 // Update existing
                 await surveyAPI.update(surveyId, formData);
                 response = await surveyAPI.submit(surveyId, {
-                    gps_latitude: gps.latitude,
-                    gps_longitude: gps.longitude
+                    gps_latitude: Number(gps.latitude).toFixed(7),
+                    gps_longitude: Number(gps.longitude).toFixed(7)
                 });
             } else {
                 // Create new
                 const createResponse = await surveyAPI.create(formData);
                 response = await surveyAPI.submit(createResponse.data.id, {
-                    gps_latitude: gps.latitude,
-                    gps_longitude: gps.longitude
+                    gps_latitude: Number(gps.latitude).toFixed(7),
+                    gps_longitude: Number(gps.longitude).toFixed(7)
                 });
             }
 
-            // Clear draft
+            // Clear draft (with error handling to prevent crashes)
             if (autoSaveHandler) {
-                await autoSaveHandler.completeDraft();
+                try {
+                    await autoSaveHandler.completeDraft();
+                } catch (draftErr) {
+                    console.warn('Failed to clear draft:', draftErr);
+                    // Continue anyway - draft cleanup is not critical
+                }
             }
 
             // Show success and redirect
-            alert(response.data.location_warning
-                ? '⚠️ Survey submitted - Location warning flagged'
-                : '✓ Survey submitted successfully!');
+            let message = '✓ Survey submitted successfully!';
+            if (gpsError) {
+                message = `⚠️ Survey submitted (GPS unavailable: ${gpsError})`;
+            } else if (response?.data?.location_warning) {
+                message = '⚠️ Survey submitted - Location warning flagged (submitted from different location)';
+            }
+            alert(message);
             navigate('/surveyor/dashboard');
 
         } catch (err) {
-            setError(err.message || 'Failed to submit survey. Please try again.');
+            // Extract detailed error message from API response
+            let errorMessage = 'Failed to submit survey. Please try again.';
+
+            // Handle string errors (from GPS rejection)
+            if (typeof err === 'string') {
+                errorMessage = err;
+            } else if (err.response?.data) {
+                const data = err.response.data;
+                if (typeof data === 'string') {
+                    errorMessage = data;
+                } else if (data.error) {
+                    errorMessage = typeof data.error === 'object' ? JSON.stringify(data.error) : data.error;
+                } else if (data.detail) {
+                    // Handle if detail is an object (causing the crash)
+                    errorMessage = typeof data.detail === 'object'
+                        ? (data.detail.message || JSON.stringify(data.detail))
+                        : data.detail;
+                } else if (typeof data === 'object') {
+                    // Handle field-level validation errors
+                    const fieldErrors = Object.entries(data)
+                        .map(([field, errors]) => {
+                            const errorMsg = Array.isArray(errors) ? errors.join(', ') : (typeof errors === 'object' ? JSON.stringify(errors) : errors);
+                            return `${field}: ${errorMsg}`;
+                        })
+                        .join('; ');
+                    if (fieldErrors) {
+                        errorMessage = fieldErrors;
+                    }
+                }
+            } else if (err.message) {
+                errorMessage = err.message;
+            }
+            setError(errorMessage);
+            console.error('Survey submission error:', err);
         }
 
         setLoading(false);
@@ -202,18 +254,53 @@ function SurveyForm() {
 
     const saveDraft = async () => {
         setLoading(true);
+        setError('');
         try {
             if (surveyId) {
                 await surveyAPI.update(surveyId, formData);
             } else {
                 await surveyAPI.create({ ...formData, status: 'DRAFT' });
                 if (autoSaveHandler) {
-                    await autoSaveHandler.completeDraft();
+                    try {
+                        await autoSaveHandler.completeDraft();
+                    } catch (draftErr) {
+                        console.warn('Failed to clear local draft:', draftErr);
+                    }
                 }
             }
+            alert('✓ Draft saved successfully!');
             navigate('/surveyor/dashboard');
         } catch (err) {
-            setError('Failed to save draft.');
+            // Extract detailed error message
+            let errorMessage = 'Failed to save draft.';
+            if (typeof err === 'string') {
+                errorMessage = err;
+            } else if (err.response?.data) {
+                const data = err.response.data;
+                if (typeof data === 'string') {
+                    errorMessage = data;
+                } else if (data.error) {
+                    errorMessage = typeof data.error === 'object' ? JSON.stringify(data.error) : data.error;
+                } else if (data.detail) {
+                    errorMessage = typeof data.detail === 'object'
+                        ? (data.detail.message || JSON.stringify(data.detail))
+                        : data.detail;
+                } else if (typeof data === 'object') {
+                    const fieldErrors = Object.entries(data)
+                        .map(([field, errors]) => {
+                            const errorMsg = Array.isArray(errors) ? errors.join(', ') : (typeof errors === 'object' ? JSON.stringify(errors) : errors);
+                            return `${field}: ${errorMsg}`;
+                        })
+                        .join('; ');
+                    if (fieldErrors) {
+                        errorMessage = fieldErrors;
+                    }
+                }
+            } else if (err.message) {
+                errorMessage = err.message;
+            }
+            setError(errorMessage);
+            console.error('Save draft error:', err);
         }
         setLoading(false);
     };
@@ -432,6 +519,18 @@ function SurveyForm() {
                                 />
                             </div>
                             <div className="form-group">
+                                <label className="form-label">Other Members</label>
+                                <input
+                                    type="number"
+                                    name="other_members"
+                                    className="form-input"
+                                    value={formData.other_members}
+                                    onChange={handleInputChange}
+                                    onBlur={handleBlur}
+                                    min="0"
+                                />
+                            </div>
+                            <div className="form-group">
                                 <label className="form-label">Children (Under 5)</label>
                                 <input
                                     type="number"
@@ -447,21 +546,9 @@ function SurveyForm() {
                                 <label className="form-label">Children (5-18)</label>
                                 <input
                                     type="number"
-                                    name="children_5_18"
+                                    name="children_5_to_18"
                                     className="form-input"
-                                    value={formData.children_5_18}
-                                    onChange={handleInputChange}
-                                    onBlur={handleBlur}
-                                    min="0"
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Adults (18-60)</label>
-                                <input
-                                    type="number"
-                                    name="adults_18_60"
-                                    className="form-input"
-                                    value={formData.adults_18_60}
+                                    value={formData.children_5_to_18}
                                     onChange={handleInputChange}
                                     onBlur={handleBlur}
                                     min="0"
@@ -471,9 +558,9 @@ function SurveyForm() {
                                 <label className="form-label">Seniors (Above 60)</label>
                                 <input
                                     type="number"
-                                    name="senior_above_60"
+                                    name="senior_citizens"
                                     className="form-input"
-                                    value={formData.senior_above_60}
+                                    value={formData.senior_citizens}
                                     onChange={handleInputChange}
                                     onBlur={handleBlur}
                                     min="0"
@@ -484,11 +571,11 @@ function SurveyForm() {
                         <h4 style={{ marginTop: '24px' }}>Household Facilities</h4>
                         <div className="grid grid-2">
                             <div className="form-group">
-                                <label className="form-label">Income Range</label>
+                                <label className="form-label">Annual Income</label>
                                 <select
-                                    name="income_range"
+                                    name="annual_income"
                                     className="form-input form-select"
-                                    value={formData.income_range}
+                                    value={formData.annual_income}
                                     onChange={handleInputChange}
                                     onBlur={handleBlur}
                                 >
@@ -501,11 +588,11 @@ function SurveyForm() {
                                 </select>
                             </div>
                             <div className="form-group">
-                                <label className="form-label">House Ownership</label>
+                                <label className="form-label">Ownership Type</label>
                                 <select
-                                    name="house_ownership"
+                                    name="ownership_type"
                                     className="form-input form-select"
-                                    value={formData.house_ownership}
+                                    value={formData.ownership_type}
                                     onChange={handleInputChange}
                                     onBlur={handleBlur}
                                 >
@@ -515,37 +602,55 @@ function SurveyForm() {
                                     <option value="GOVERNMENT">Government Allotted</option>
                                 </select>
                             </div>
+                        </div>
+                        <div className="grid grid-4" style={{ marginTop: '16px' }}>
                             <div className="form-group">
-                                <label className="form-label">Water Source</label>
-                                <select
-                                    name="water_source"
-                                    className="form-input form-select"
-                                    value={formData.water_source}
-                                    onChange={handleInputChange}
-                                    onBlur={handleBlur}
-                                >
-                                    <option value="">Select</option>
-                                    <option value="TAP">Municipal Tap</option>
-                                    <option value="WELL">Well</option>
-                                    <option value="BOREWELL">Borewell</option>
-                                    <option value="TANKER">Tanker</option>
-                                </select>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <input
+                                        type="checkbox"
+                                        name="has_electricity"
+                                        checked={formData.has_electricity}
+                                        onChange={handleInputChange}
+                                        onBlur={handleBlur}
+                                    />
+                                    Electricity
+                                </label>
                             </div>
                             <div className="form-group">
-                                <label className="form-label">Toilet Type</label>
-                                <select
-                                    name="toilet_type"
-                                    className="form-input form-select"
-                                    value={formData.toilet_type}
-                                    onChange={handleInputChange}
-                                    onBlur={handleBlur}
-                                >
-                                    <option value="">Select</option>
-                                    <option value="FLUSH">Flush Toilet</option>
-                                    <option value="PIT">Pit Latrine</option>
-                                    <option value="COMMUNITY">Community Toilet</option>
-                                    <option value="NONE">Open Defecation</option>
-                                </select>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <input
+                                        type="checkbox"
+                                        name="has_water_connection"
+                                        checked={formData.has_water_connection}
+                                        onChange={handleInputChange}
+                                        onBlur={handleBlur}
+                                    />
+                                    Water Connection
+                                </label>
+                            </div>
+                            <div className="form-group">
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <input
+                                        type="checkbox"
+                                        name="has_toilet"
+                                        checked={formData.has_toilet}
+                                        onChange={handleInputChange}
+                                        onBlur={handleBlur}
+                                    />
+                                    Toilet
+                                </label>
+                            </div>
+                            <div className="form-group">
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <input
+                                        type="checkbox"
+                                        name="has_lpg"
+                                        checked={formData.has_lpg}
+                                        onChange={handleInputChange}
+                                        onBlur={handleBlur}
+                                    />
+                                    LPG Connection
+                                </label>
                             </div>
                         </div>
                     </div>

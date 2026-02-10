@@ -72,8 +72,7 @@ function LoginPage() {
                     <p className="text-muted">Government of Karnataka</p>
                     {devMode && (
                         <div className="alert alert-info" style={{ marginTop: '16px', textAlign: 'left' }}>
-                            <strong>🔧 Development Mode</strong><br />
-                            Firebase billing not enabled. Using direct login.
+                            <strong>🔧 Development Mode</strong>
                         </div>
                     )}
                 </div>

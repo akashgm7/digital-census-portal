@@ -66,6 +66,14 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         fields = ['full_name', 'role', 'zone', 'daily_target', 'is_active']
 
 
+class UserProfileUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for users to update their own profile."""
+    
+    class Meta:
+        model = User
+        fields = ['full_name']
+
+
 class LoginSerializer(serializers.Serializer):
     """Serializer for login request."""
     firebase_token = serializers.CharField()

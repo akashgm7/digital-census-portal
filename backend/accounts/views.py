@@ -96,7 +96,8 @@ class LoginView(APIView):
                 'zone_id': user.zone.id if user.zone else None,
                 'zone_name': user.zone.name if user.zone else None,
                 'daily_target': user.daily_target,
-                'redirect_url': user.get_redirect_url()
+                'redirect_url': user.get_redirect_url(),
+                'created_at': user.created_at,
             }
             
             return Response(response_data, status=status.HTTP_200_OK)
@@ -185,5 +186,52 @@ class MeView(APIView):
             'zone_id': user.zone.id if user.zone else None,
             'zone_name': user.zone.name if user.zone else None,
             'daily_target': user.daily_target,
-            'redirect_url': user.get_redirect_url()
+            'redirect_url': user.get_redirect_url(),
+            'created_at': user.created_at,
         })
+
+    def patch(self, request):
+        """Update current user profile."""
+        from .serializers import UserProfileUpdateSerializer  # Local import to avoid circular dependency if any
+        user = request.user
+        serializer = UserProfileUpdateSerializer(user, data=request.data, partial=True)
+        
+        if serializer.is_valid():
+            old_data = {'full_name': user.full_name}
+            user = serializer.save()
+            
+            # Create audit log
+            AuditLog.objects.create(
+                user=user,
+                action=AuditLog.Action.UPDATE,
+                entity_type='User',
+                entity_id=str(user.id),
+                old_values=old_data,
+                new_values={'full_name': user.full_name},
+                ip_address=self._get_client_ip(request),
+                user_agent=request.META.get('HTTP_USER_AGENT', '')
+            )
+            
+            return Response({
+                'success': True,
+                'message': 'Profile updated successfully',
+                'user': {
+                    'id': user.id,
+                    'full_name': user.full_name,
+                    'role': user.role,
+                    'zone_id': user.zone.id if user.zone else None,
+                    'zone_name': user.zone.name if user.zone else None,
+                    'daily_target': user.daily_target,
+                    'daily_target': user.daily_target,
+                    'redirect_url': user.get_redirect_url(),
+                    'created_at': user.created_at,
+                }
+            })
+            
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def _get_client_ip(self, request):
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            return x_forwarded_for.split(',')[0]
+        return request.META.get('REMOTE_ADDR')

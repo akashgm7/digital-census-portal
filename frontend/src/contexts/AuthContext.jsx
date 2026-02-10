@@ -93,12 +93,14 @@ export const AuthProvider = ({ children }) => {
             if (userData.success) {
                 const userInfo = {
                     id: userData.user_id,
+                    phoneNumber: userData.phone_number,
                     fullName: userData.full_name,
                     role: userData.role,
                     zoneId: userData.zone_id,
                     zoneName: userData.zone_name,
                     dailyTarget: userData.daily_target,
                     redirectUrl: userData.redirect_url,
+                    createdAt: userData.created_at,
                 };
 
                 setUser(userInfo);
@@ -174,12 +176,14 @@ export const AuthProvider = ({ children }) => {
             if (userData.success) {
                 const userInfo = {
                     id: userData.user_id,
+                    phoneNumber: userData.phone_number,
                     fullName: userData.full_name,
                     role: userData.role,
                     zoneId: userData.zone_id,
                     zoneName: userData.zone_name,
                     dailyTarget: userData.daily_target,
                     redirectUrl: userData.redirect_url,
+                    createdAt: userData.created_at,
                 };
 
                 setUser(userInfo);

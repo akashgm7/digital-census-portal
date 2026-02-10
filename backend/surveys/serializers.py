@@ -92,12 +92,38 @@ class SurveyCreateSerializer(serializers.ModelSerializer):
                    'verified_by', 'audit_trail', 'location_warning']
     
     def validate(self, data):
-        """Apply dynamic validation rules."""
-        # Same validation as SurveyResponseSerializer
+        """Apply dynamic validation rules (skip for drafts)."""
+        # Skip strict validation for drafts - allow incomplete data
+        if data.get('status') == 'DRAFT':
+            return data
+            
+        # Full validation for submitted surveys
         errors = {}
         
         head_age = data.get('head_age', 0)
         head_occupation = data.get('head_occupation', '')
+        
+        if head_age and head_age < 18 and head_occupation and head_occupation.lower() not in ['', 'student', 'none']:
+            errors['head_occupation'] = 'Occupation must be empty or "Student" for age under 18.'
+        
+        total = data.get('total_members', 0)
+        male = data.get('male_members', 0)
+        female = data.get('female_members', 0)
+        other = data.get('other_members', 0)
+        
+        if total > 0 and (male + female + other) != total:
+            errors['total_members'] = f'Gender sum ({male + female + other}) must equal total members ({total}).'
+        
+        head_phone = data.get('head_phone', '')
+        if head_phone:
+            digits = ''.join(filter(str.isdigit, head_phone))
+            if len(digits) != 10:
+                errors['head_phone'] = 'Phone number must be exactly 10 digits.'
+        
+        if errors:
+            raise serializers.ValidationError(errors)
+        
+        return data
         
         if head_age and head_age < 18 and head_occupation and head_occupation.lower() not in ['', 'student', 'none']:
             errors['head_occupation'] = 'Occupation must be empty or "Student" for age under 18.'

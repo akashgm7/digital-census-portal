@@ -141,6 +141,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
+    "http://192.168.0.194:3000",
+    "http://192.168.0.194:5173",
     "https://census-portal-karnataka.web.app",
     "https://census-portal-karnataka.firebaseapp.com",
     "https://web-production-8ca79.up.railway.app",
