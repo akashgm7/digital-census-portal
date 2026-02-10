@@ -143,6 +143,29 @@ function SurveyForm() {
     };
 
     const nextStep = () => {
+        // Validation for Step 1 (Address)
+        if (step === 1) {
+            if (!formData.address_line || !formData.pincode) {
+                setError('Please fill in all required fields (*)');
+                // Clear error after 3 seconds
+                setTimeout(() => setError(''), 3000);
+                return;
+            }
+
+            if (pincodeValid === false) {
+                setError("Please enter a valid pincode for your assigned zone.");
+                setTimeout(() => setError(''), 3000);
+                return;
+            }
+
+            if (pincodeValid === null) {
+                setError("Please enter a valid 6-digit pincode.");
+                setTimeout(() => setError(''), 3000);
+                return;
+            }
+        }
+
+        setError(''); // Clear any previous errors
         if (step < STEPS.length) {
             setStep(step + 1);
             if (autoSaveHandler && !surveyId) {

@@ -27,35 +27,45 @@ export const AuthProvider = ({ children }) => {
             if (storedUser && token) {
                 // Set initial user from storage for fast UI
                 setUser(JSON.parse(storedUser));
-
-                // Refresh user data from API to get latest Role/Zone
-                try {
-                    const response = await authAPI.getMe();
-                    if (response.data && response.data.user) {
-                        const rawUser = response.data.user;
-                        // Map snake_case from UserSerializer to camelCase for app state
-                        const updatedUser = {
-                            id: rawUser.id,
-                            phoneNumber: rawUser.phone_number,
-                            fullName: rawUser.full_name,
-                            role: rawUser.role,
-                            zoneId: rawUser.zone, // UserSerializer returns 'zone' as ID
-                            zoneName: rawUser.zone_name,
-                            dailyTarget: rawUser.daily_target,
-                            // Preserve other fields if necessary
-                        };
-                        setUser(updatedUser);
-                        localStorage.setItem('user', JSON.stringify(updatedUser));
-                    }
-                } catch (err) {
-                    console.error('Failed to refresh user data:', err);
-                    // If 401, maybe logout? For now just keep local data or let API calls fail naturally
-                }
+                // Refresh user data from API
+                await refreshUser();
             }
             setLoading(false);
         };
 
         initAuth();
+    }, []);
+
+    // Refresh user data from API
+    const refreshUser = useCallback(async () => {
+        try {
+            const response = await authAPI.getMe();
+            if (response.data) {
+                // Determine if response structure is nested (response.data.user) or flat (response.data)
+                // MeView returns flat structure currently
+                const rawUser = response.data.user || response.data;
+
+                // Map to camelCase
+                const updatedUser = {
+                    id: rawUser.id,
+                    phoneNumber: rawUser.phone_number || rawUser.phoneNumber, // Handle both cases just in case
+                    fullName: rawUser.full_name || rawUser.fullName,
+                    role: rawUser.role,
+                    zoneId: rawUser.zone || rawUser.zone_id, // API might return zone ID as 'zone' or 'zone_id'
+                    zoneName: rawUser.zone_name || rawUser.zoneName,
+                    dailyTarget: rawUser.daily_target || rawUser.dailyTarget,
+                    redirectUrl: rawUser.redirect_url || rawUser.redirectUrl,
+                    createdAt: rawUser.created_at || rawUser.createdAt,
+                };
+
+                setUser(updatedUser);
+                localStorage.setItem('user', JSON.stringify(updatedUser));
+                return updatedUser;
+            }
+        } catch (err) {
+            console.error('Failed to refresh user data:', err);
+        }
+        return null;
     }, []);
 
     // Token refresh interval
@@ -236,6 +246,7 @@ export const AuthProvider = ({ children }) => {
         login,
         devLogin,
         logout,
+        refreshUser,
         dismissIdleWarning,
         hasRole,
         isAuthenticated: !!user,

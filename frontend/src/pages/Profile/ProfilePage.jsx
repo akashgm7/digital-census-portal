@@ -8,7 +8,7 @@ import { authAPI } from '../../services/api';
 import { useNavigate } from 'react-router-dom';
 
 function ProfilePage() {
-    const { user, login } = useAuth(); // login used to update context
+    const { user, refreshUser } = useAuth(); // login used to update context
     const navigate = useNavigate();
 
     const [isEditing, setIsEditing] = useState(false);
@@ -36,13 +36,9 @@ function ProfilePage() {
         try {
             const response = await authAPI.updateProfile({ full_name: fullName });
             if (response.data.success) {
+                await refreshUser(); // Update context with new data
                 setSuccess('Profile updated successfully!');
                 setIsEditing(false);
-
-                // Update local user context if possible, or force reload/refetch
-                // For now, let's assume we might need to refresh attributes or just let the user know
-                // Ideally, AuthContext should provide a way to update user state without full login
-                // But we can just rely on the next page load or manually update if we had a setUser
             }
         } catch (err) {
             setError(err.response?.data?.message || 'Failed to update profile.');
