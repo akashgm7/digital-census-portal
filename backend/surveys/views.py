@@ -131,8 +131,8 @@ class SurveyViewSet(DataIsolationMixin, viewsets.ModelViewSet):
                 zone_lng = float(zone.center_longitude)
                 distance = self._calculate_distance(gps_lat, gps_lng, zone_lat, zone_lng)
                 
-                # Geo-fence check (5 meters threshold)
-                threshold = getattr(settings, 'GEOFENCE_WARNING_DISTANCE_METERS', 5)
+                # Geo-fence check (Use Zone Radius)
+                threshold = zone.radius_meters if zone.radius_meters else getattr(settings, 'GEOFENCE_WARNING_DISTANCE_METERS', 5)
                 location_warning = distance > threshold
             except (ValueError, TypeError):
                 # If coordinate conversion fails, flag as location warning
