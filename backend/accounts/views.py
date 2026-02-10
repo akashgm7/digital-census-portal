@@ -94,7 +94,7 @@ class LoginView(APIView):
                 'full_name': user.full_name,
                 'role': user.role,
                 'zone_id': user.zone.id if user.zone else None,
-                'zone_name': user.zone.name if user.zone else None,
+                'zone_name': f"{user.zone.name} ({user.zone.code})" if user.zone else None,
                 'daily_target': user.daily_target,
                 'redirect_url': user.get_redirect_url(),
                 'created_at': user.created_at,

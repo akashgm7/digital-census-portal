@@ -17,7 +17,12 @@ class ZoneSerializer(serializers.ModelSerializer):
 
 class UserSerializer(serializers.ModelSerializer):
     """Full user serializer for admin operations."""
-    zone_name = serializers.CharField(source='zone.name', read_only=True)
+    zone_name = serializers.SerializerMethodField()
+    
+    def get_zone_name(self, obj):
+        if obj.zone:
+            return f"{obj.zone.name} ({obj.zone.code})"
+        return None
     
     class Meta:
         model = User

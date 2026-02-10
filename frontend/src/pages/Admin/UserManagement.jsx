@@ -128,7 +128,7 @@ function UserManagement() {
                                 >
                                     <option value="">Select Zone</option>
                                     {zones.map(zone => (
-                                        <option key={zone.id} value={zone.id}>{zone.name}</option>
+                                        <option key={zone.id} value={zone.id}>{zone.name} ({zone.code})</option>
                                     ))}
                                 </select>
                             </div>

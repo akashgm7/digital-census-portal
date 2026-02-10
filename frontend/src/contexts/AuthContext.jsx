@@ -18,15 +18,44 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const [showIdleWarning, setShowIdleWarning] = useState(false);
 
-    // Load user from localStorage on mount
+    // Load user from localStorage on mount and refresh from API
     useEffect(() => {
-        const storedUser = localStorage.getItem('user');
-        const token = localStorage.getItem('authToken');
+        const initAuth = async () => {
+            const storedUser = localStorage.getItem('user');
+            const token = localStorage.getItem('authToken');
 
-        if (storedUser && token) {
-            setUser(JSON.parse(storedUser));
-        }
-        setLoading(false);
+            if (storedUser && token) {
+                // Set initial user from storage for fast UI
+                setUser(JSON.parse(storedUser));
+
+                // Refresh user data from API to get latest Role/Zone
+                try {
+                    const response = await authAPI.getMe();
+                    if (response.data && response.data.user) {
+                        const rawUser = response.data.user;
+                        // Map snake_case from UserSerializer to camelCase for app state
+                        const updatedUser = {
+                            id: rawUser.id,
+                            phoneNumber: rawUser.phone_number,
+                            fullName: rawUser.full_name,
+                            role: rawUser.role,
+                            zoneId: rawUser.zone, // UserSerializer returns 'zone' as ID
+                            zoneName: rawUser.zone_name,
+                            dailyTarget: rawUser.daily_target,
+                            // Preserve other fields if necessary
+                        };
+                        setUser(updatedUser);
+                        localStorage.setItem('user', JSON.stringify(updatedUser));
+                    }
+                } catch (err) {
+                    console.error('Failed to refresh user data:', err);
+                    // If 401, maybe logout? For now just keep local data or let API calls fail naturally
+                }
+            }
+            setLoading(false);
+        };
+
+        initAuth();
     }, []);
 
     // Token refresh interval
