@@ -19,10 +19,15 @@ import ProfilePage from './pages/Profile/ProfilePage';
 import AdminDashboard from './pages/Admin/AdminDashboard';
 import UserManagement from './pages/Admin/UserManagement';
 import BulkUpload from './pages/Admin/BulkUpload';
+import AddressManagement from './pages/Admin/AddressManagement';
+import AdminAnalytics from './pages/Admin/Analytics/AdminAnalytics';
+import AdminSurveyList from './pages/Admin/AdminSurveyList';
+
 
 // Supervisor Pages
 import SupervisorDashboard from './pages/Supervisor/SupervisorDashboard';
 import VerifySurveys from './pages/Supervisor/VerifySurveys';
+import SupervisorSurveyList from './pages/Supervisor/SupervisorSurveyList';
 
 // Surveyor Pages
 import SurveyorDashboard from './pages/Surveyor/SurveyorDashboard';
@@ -80,12 +85,14 @@ function App() {
                 {/* Home redirect */}
                 <Route path="/" element={<Navigate to={getHomeRedirect()} replace />} />
 
-                {/* Profile Route - Accessible to all authenticated users */}
-                <Route path="/profile" element={
+                {/* Profile Route */}
+                <Route element={
                     <ProtectedRoute>
-                        <ProfilePage />
+                        <Layout />
                     </ProtectedRoute>
-                } />
+                }>
+                    <Route path="/profile" element={<ProfilePage />} />
+                </Route>
 
                 {/* Admin Routes */}
                 <Route path="/admin" element={
@@ -94,8 +101,11 @@ function App() {
                     </ProtectedRoute>
                 }>
                     <Route path="dashboard" element={<AdminDashboard />} />
+                    <Route path="analytics" element={<AdminAnalytics />} />
                     <Route path="users" element={<UserManagement />} />
+                    <Route path="surveys" element={<AdminSurveyList />} />
                     <Route path="bulk-upload" element={<BulkUpload />} />
+                    <Route path="addresses" element={<AddressManagement />} />
                 </Route>
 
                 {/* Supervisor Routes */}
@@ -106,6 +116,9 @@ function App() {
                 }>
                     <Route path="dashboard" element={<SupervisorDashboard />} />
                     <Route path="verify" element={<VerifySurveys />} />
+                    {/* Reusing VerifySurveys for detail view */}
+                    <Route path="verify/:id" element={<VerifySurveys />} />
+                    <Route path="surveys" element={<SupervisorSurveyList />} />
                 </Route>
 
                 {/* Surveyor Routes */}

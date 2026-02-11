@@ -37,14 +37,14 @@ function SupervisorDashboard() {
             </p>
 
             {/* Overview Cards */}
-            <div className="grid grid-4" style={{ marginBottom: '24px' }}>
+            <div className="grid grid-5" style={{ marginBottom: '24px', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
                 <div className="stat-card">
                     <div className="stat-value">{data?.overview?.total || 0}</div>
                     <div className="stat-label">Total Surveys</div>
                 </div>
                 <div className="stat-card">
                     <div className="stat-value" style={{ color: 'var(--color-warning)' }}>
-                        {data?.overview?.submitted || 0}
+                        {data?.overview?.pending_verification || 0}
                     </div>
                     <div className="stat-label">Pending Verification</div>
                 </div>
@@ -59,6 +59,12 @@ function SupervisorDashboard() {
                         {data?.overview?.location_warnings || 0}
                     </div>
                     <div className="stat-label">Location Warnings</div>
+                </div>
+                <div className="stat-card">
+                    <div className="stat-value" style={{ color: '#e74c3c' }}>
+                        {data?.overview?.new_houses || 0}
+                    </div>
+                    <div className="stat-label">New Houses</div>
                 </div>
             </div>
 
@@ -76,30 +82,48 @@ function SupervisorDashboard() {
                 </ResponsiveContainer>
             </div>
 
-            {/* Surveyors in Zone */}
-            <div className="card" style={{ marginBottom: '24px' }}>
-                <h3 className="card-title">Surveyors in Zone</h3>
-                <div className="table-container">
-                    <table className="table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Phone</th>
-                                <th>Daily Target</th>
-                                <th>Surveys Completed</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {(data?.surveyors || []).map(s => (
-                                <tr key={s.id}>
-                                    <td>{s.full_name}</td>
-                                    <td>{s.phone_number}</td>
-                                    <td>{s.daily_target}</td>
-                                    <td>{s.survey_count}</td>
+            <div className="grid grid-2" style={{ marginBottom: '24px' }}>
+                {/* Surveyors in Zone */}
+                <div className="card">
+                    <h3 className="card-title">Surveyors in Zone</h3>
+                    <div className="table-container">
+                        <table className="table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Target</th>
+                                    <th>Done</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {(data?.surveyors || []).slice(0, 5).map(s => (
+                                    <tr key={s.id}>
+                                        <td>{s.full_name}</td>
+                                        <td>{s.daily_target}</td>
+                                        <td>{s.survey_count}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    {(data?.surveyors || []).length > 5 && (
+                        <div style={{ textAlign: 'center', marginTop: '12px' }}>
+                            <small className="text-muted">Showing top 5 of {(data?.surveyors || []).length}</small>
+                        </div>
+                    )}
+                </div>
+
+                <div className="card">
+                    <h3 className="card-title">Alerts</h3>
+                    <div className="alert alert-warning" style={{ marginBottom: '16px' }}>
+                        <strong>{data?.overview?.location_warnings || 0}</strong> surveys with location warnings
+                    </div>
+                    <div className="alert alert-error" style={{ marginBottom: '16px' }}>
+                        <strong>{data?.overview?.new_houses || 0}</strong> new/unknown houses found
+                    </div>
+                    <div className="alert alert-info" style={{ marginBottom: '16px' }}>
+                        <strong>{data?.overview?.drafts || 0}</strong> surveys in draft
+                    </div>
                 </div>
             </div>
 

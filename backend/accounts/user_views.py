@@ -91,8 +91,13 @@ class UserViewSet(viewsets.ModelViewSet):
         
         # Parse CSV
         try:
-            decoded_file = file.read().decode('utf-8')
-            reader = csv.DictReader(io.StringIO(decoded_file))
+            decoded_file = file.read().decode('utf-8-sig')
+            io_string = io.StringIO(decoded_file)
+            reader = csv.DictReader(io_string)
+            
+            # Strip whitespace from headers
+            if reader.fieldnames:
+                reader.fieldnames = [name.strip() for name in reader.fieldnames]
         except Exception as e:
             return Response(
                 {'error': f'Error reading CSV: {str(e)}'},

@@ -23,33 +23,74 @@ class AdminDashboardView(APIView):
     permission_classes = [IsAdmin]
     
     def get(self, request):
+        # Filters
+        zone_id = request.query_params.get('zone_id')
+        supervisor_id = request.query_params.get('supervisor_id')
+        
+        # Base QuerySets
+        surveys_qs = SurveyResponse.objects.all()
+        users_qs = User.objects.all()
+        daily_progress_qs = DailyProgress.objects.filter(date=date.today())
+        
+        # Apply Filters
+        selected_zone = None
+        
+        if supervisor_id:
+            try:
+                supervisor = User.objects.get(id=supervisor_id, role='SUPERVISOR')
+                if supervisor.zone:
+                    selected_zone = supervisor.zone
+                    # Filter by Supervisor's Zone
+                    surveys_qs = surveys_qs.filter(zone=selected_zone)
+                    users_qs = users_qs.filter(zone=selected_zone)
+                    daily_progress_qs = daily_progress_qs.filter(surveyor__zone=selected_zone)
+            except User.DoesNotExist:
+                pass
+        
+        if zone_id:
+            # Zone filter overrides supervisor's zone if both present (or intersects? let's stick to override/specific)
+            surveys_qs = surveys_qs.filter(zone_id=zone_id)
+            users_qs = users_qs.filter(zone_id=zone_id)
+            daily_progress_qs = daily_progress_qs.filter(surveyor__zone_id=zone_id)
+            try:
+                selected_zone = Zone.objects.get(id=zone_id)
+            except Zone.DoesNotExist:
+                pass
+
         # Overall counts
-        total_surveys = SurveyResponse.objects.count()
-        submitted = SurveyResponse.objects.filter(status='SUBMITTED').count()
-        verified = SurveyResponse.objects.filter(status='VERIFIED').count()
-        flagged = SurveyResponse.objects.filter(status='FLAGGED').count()
-        drafts = SurveyResponse.objects.filter(status='DRAFT').count()
-        location_warnings = SurveyResponse.objects.filter(location_warning=True).count()
+        total_surveys = surveys_qs.count()
+        submitted = surveys_qs.filter(status='SUBMITTED').count()
+        verified = surveys_qs.filter(status='VERIFIED').count()
+        flagged = surveys_qs.filter(status='FLAGGED').count()
+        drafts = surveys_qs.filter(status='DRAFT').count()
+        new_houses = surveys_qs.filter(status='FLAGGED', address__isnull=True).count()
+        location_warnings = surveys_qs.filter(status='FLAGGED', location_warning=True).count()
         
         # User counts
-        total_users = User.objects.count()
-        active_users = User.objects.filter(is_active=True).count()
-        admins = User.objects.filter(role='ADMIN').count()
-        supervisors = User.objects.filter(role='SUPERVISOR').count()
-        surveyors = User.objects.filter(role='SURVEYOR').count()
+        total_users = users_qs.count()
+        active_users = users_qs.filter(is_active=True).count()
+        admins = users_qs.filter(role='ADMIN').count()
+        supervisors = users_qs.filter(role='SUPERVISOR').count()
+        surveyors = users_qs.filter(role='SURVEYOR').count()
         
-        # Zone statistics
-        zones = Zone.objects.filter(is_active=True).annotate(
-            survey_count=Count('surveys'),
-            surveyor_count=Count('users', filter=Q(users__role='SURVEYOR')),
-            verified_count=Count('surveys', filter=Q(surveys__status='VERIFIED')),
+        # Zone statistics (Only relevant if NO specific zone selected, otherwise show just that one)
+        # If filtering by zone, this list might be just 1 item or we can skip it.
+        # Let's keep it but filter it too if zone selected.
+        zones_qs = Zone.objects.filter(is_active=True)
+        if selected_zone:
+            zones_qs = zones_qs.filter(id=selected_zone.id)
+            
+        zones_data = zones_qs.annotate(
+            survey_count=Count('surveys', distinct=True),
+            surveyor_count=Count('users', filter=Q(users__role='SURVEYOR'), distinct=True),
+            verified_count=Count('surveys', filter=Q(surveys__status='VERIFIED'), distinct=True),
         ).values('id', 'name', 'code', 'survey_count', 'surveyor_count', 'verified_count')
         
         # Velocity graph (last 7 days)
         end_date = date.today()
         start_date = end_date - timedelta(days=6)
         
-        daily_submissions = SurveyResponse.objects.filter(
+        daily_submissions = surveys_qs.filter(
             submitted_at__date__gte=start_date,
             submitted_at__date__lte=end_date
         ).annotate(
@@ -70,9 +111,7 @@ class AdminDashboardView(APIView):
             })
         
         # Leaderboard (top 10 surveyors by submissions)
-        leaderboard = DailyProgress.objects.filter(
-            date=date.today()
-        ).select_related('surveyor').order_by('-surveys_completed')[:10]
+        leaderboard = daily_progress_qs.select_related('surveyor').order_by('-surveys_completed')[:10]
         
         leaderboard_data = [{
             'surveyor_id': str(p.surveyor.id),
@@ -90,6 +129,7 @@ class AdminDashboardView(APIView):
                 'verified': verified,
                 'flagged': flagged,
                 'drafts': drafts,
+                'new_houses': new_houses,
                 'location_warnings': location_warnings,
             },
             'users': {
@@ -99,9 +139,13 @@ class AdminDashboardView(APIView):
                 'supervisors': supervisors,
                 'surveyors': surveyors,
             },
-            'zones': list(zones),
+            'zones': list(zones_data),
             'velocity': velocity,
-            'leaderboard': leaderboard_data
+            'leaderboard': leaderboard_data,
+            'filter_meta': {
+                'zone': selected_zone.name if selected_zone else 'All',
+                'zone_id': str(selected_zone.id) if selected_zone else None
+            }
         })
 
 
@@ -135,7 +179,12 @@ class SupervisorDashboardView(APIView):
         submitted = zone_surveys.filter(status='SUBMITTED').count()
         verified = zone_surveys.filter(status='VERIFIED').count()
         flagged = zone_surveys.filter(status='FLAGGED').count()
-        location_warnings = zone_surveys.filter(location_warning=True).count()
+        
+        # Alerts should only show actionable items (FLAGGED statuses)
+        # New Houses = Flagged & No Address
+        new_houses_count = zone_surveys.filter(status='FLAGGED', address__isnull=True).count()
+        # Location Warnings = Flagged & Has Warning (Mutually exclusive with above based on submit logic)
+        location_warnings_count = zone_surveys.filter(status='FLAGGED', location_warning=True).count()
         
         # Zone surveyors
         surveyors = User.objects.filter(
@@ -143,7 +192,7 @@ class SupervisorDashboardView(APIView):
             role='SURVEYOR',
             is_active=True
         ).annotate(
-            survey_count=Count('surveys', filter=Q(surveys__status__in=['SUBMITTED', 'VERIFIED']))
+            survey_count=Count('surveys', filter=Q(surveys__status__in=['SUBMITTED', 'VERIFIED', 'FLAGGED']), distinct=True)
         ).values('id', 'full_name', 'phone_number', 'daily_target', 'survey_count')
         
         # Velocity (last 7 days)
@@ -186,7 +235,10 @@ class SupervisorDashboardView(APIView):
                 'submitted': submitted,
                 'verified': verified,
                 'flagged': flagged,
-                'location_warnings': location_warnings,
+                'pending_verification': submitted + flagged,
+                'drafts': zone_surveys.filter(status='DRAFT').count(),
+                'location_warnings': location_warnings_count,
+                'new_houses': new_houses_count,
             },
             'surveyors': list(surveyors),
             'velocity': velocity,
@@ -219,7 +271,12 @@ class SurveyorDashboardView(APIView):
         total = my_surveys.count()
         submitted = my_surveys.filter(status='SUBMITTED').count()
         verified = my_surveys.filter(status='VERIFIED').count()
+        flagged = my_surveys.filter(status='FLAGGED').count()
         drafts = my_surveys.filter(status='DRAFT').count()
+        
+        # Alerts/Actionable
+        new_houses = my_surveys.filter(status='FLAGGED', address__isnull=True).count()
+        location_warnings = my_surveys.filter(status='FLAGGED', location_warning=True).count()
         
         # Recent surveys
         recent = my_surveys.exclude(status='DRAFT').order_by('-submitted_at')[:5]
@@ -228,7 +285,7 @@ class SurveyorDashboardView(APIView):
             'head_name': s.head_name,
             'status': s.status,
             'submitted_at': s.submitted_at,
-            'editable': s.status == 'SUBMITTED'
+            'editable': s.status != 'VERIFIED'
         } for s in recent]
         
         return Response({
@@ -247,7 +304,10 @@ class SurveyorDashboardView(APIView):
                 'total': total,
                 'submitted': submitted,
                 'verified': verified,
-                'drafts': drafts
+                'flagged': flagged,
+                'drafts': drafts,
+                'new_houses': new_houses,
+                'location_warnings': location_warnings
             },
             'recent_surveys': recent_data
         })

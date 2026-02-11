@@ -38,7 +38,7 @@ function AdminDashboard() {
             <h2>Admin Dashboard</h2>
 
             {/* Overview Cards */}
-            <div className="grid grid-4" style={{ marginBottom: '24px' }}>
+            <div className="grid grid-5" style={{ marginBottom: '24px', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
                 <div className="stat-card">
                     <div className="stat-value">{data?.overview?.total_surveys || 0}</div>
                     <div className="stat-label">Total Surveys</div>
@@ -61,6 +61,12 @@ function AdminDashboard() {
                     </div>
                     <div className="stat-label">Flagged</div>
                 </div>
+                <div className="stat-card">
+                    <div className="stat-value" style={{ color: '#e74c3c' }}>
+                        {data?.overview?.new_houses || 0}
+                    </div>
+                    <div className="stat-label">New Houses</div>
+                </div>
             </div>
 
             {/* User Statistics */}
@@ -82,11 +88,14 @@ function AdminDashboard() {
 
                 <div className="card">
                     <h3 className="card-title">Alerts</h3>
+                    <div className="alert alert-error" style={{ marginBottom: '8px' }}>
+                        <strong>{data?.overview?.new_houses || 0}</strong> new/unknown houses found
+                    </div>
                     <div className="alert alert-warning" style={{ marginBottom: '8px' }}>
-                        {data?.overview?.location_warnings || 0} surveys with location warnings
+                        <strong>{data?.overview?.location_warnings || 0}</strong> surveys with location warnings
                     </div>
                     <div className="alert alert-info">
-                        {data?.overview?.drafts || 0} surveys in draft
+                        <strong>{data?.overview?.drafts || 0}</strong> surveys in draft
                     </div>
                 </div>
             </div>
@@ -118,21 +127,21 @@ function AdminDashboard() {
                     <table className="table">
                         <thead>
                             <tr>
-                                <th>Zone</th>
-                                <th>Code</th>
-                                <th>Surveyors</th>
-                                <th>Total Surveys</th>
-                                <th>Verified</th>
+                                <th style={{ textAlign: 'left' }}>Zone</th>
+                                <th style={{ textAlign: 'left' }}>Code</th>
+                                <th style={{ textAlign: 'center' }}>Surveyors</th>
+                                <th style={{ textAlign: 'center' }}>Total Surveys</th>
+                                <th style={{ textAlign: 'center' }}>Verified</th>
                             </tr>
                         </thead>
                         <tbody>
                             {(data?.zones || []).map(zone => (
                                 <tr key={zone.id}>
-                                    <td>{zone.name}</td>
-                                    <td>{zone.code}</td>
-                                    <td>{zone.surveyor_count}</td>
-                                    <td>{zone.survey_count}</td>
-                                    <td>{zone.verified_count}</td>
+                                    <td style={{ textAlign: 'left' }}>{zone.name}</td>
+                                    <td style={{ textAlign: 'left' }}>{zone.code}</td>
+                                    <td style={{ textAlign: 'center' }}>{zone.surveyor_count}</td>
+                                    <td style={{ textAlign: 'center' }}>{zone.survey_count}</td>
+                                    <td style={{ textAlign: 'center' }}>{zone.verified_count}</td>
                                 </tr>
                             ))}
                         </tbody>
@@ -141,7 +150,7 @@ function AdminDashboard() {
             </div>
 
             {/* Leaderboard */}
-            <div className="card">
+            {/* <div className="card">
                 <h3 className="card-title">Today's Leaderboard</h3>
                 <div className="table-container">
                     <table className="table">
@@ -176,7 +185,7 @@ function AdminDashboard() {
                         </tbody>
                     </table>
                 </div>
-            </div>
+            </div> */}
         </div>
     );
 }

@@ -12,8 +12,11 @@ from rest_framework.response import Response
 from .models import SurveyResponse, DailyProgress
 from .serializers import (
     SurveyResponseSerializer, SurveyResponseListSerializer,
-    SurveyCreateSerializer, SurveySubmitSerializer, DailyProgressSerializer
+    SurveyCreateSerializer, SurveySubmitSerializer, DailyProgressSerializer,
+    MasterAddressSerializer, MasterAddressUpdateSerializer
 )
+from .models import SurveyResponse, DailyProgress, MasterAddress
+
 from accounts.models import AuditLog
 from accounts.permissions import (
     IsSurveyor, IsAdminOrSupervisor, IsSupervisorOrSurveyor,
@@ -31,11 +34,35 @@ class SurveyViewSet(DataIsolationMixin, viewsets.ModelViewSet):
     queryset = SurveyResponse.objects.select_related('surveyor', 'zone', 'verified_by').all()
     
     def get_permissions(self):
-        if self.action in ['create']:
+        if self.action in ['create', 'destroy']:
             return [IsSurveyor()]
-        if self.action in ['verify']:
+        if self.action in ['verify', 'flag']:
             return [IsAdminOrSupervisor()]
         return [IsSupervisorOrSurveyor()]
+    
+    def perform_destroy(self, instance):
+        """Delete survey with validation - only own non-verified surveys."""
+        user = self.request.user
+        
+        # Only surveyor can delete their own surveys
+        if instance.surveyor != user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('You can only delete your own surveys.')
+        
+        # Verified surveys cannot be deleted
+        if instance.status == SurveyResponse.Status.VERIFIED:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Verified surveys cannot be deleted.')
+        
+        # Create audit log before deletion
+        AuditLog.objects.create(
+            user=user,
+            action=AuditLog.Action.DELETE if hasattr(AuditLog.Action, 'DELETE') else AuditLog.Action.SUBMIT,
+            entity_type='SurveyResponse',
+            entity_id=str(instance.id)
+        )
+        
+        instance.delete()
     
     def get_serializer_class(self):
         if self.action == 'list':
@@ -43,6 +70,38 @@ class SurveyViewSet(DataIsolationMixin, viewsets.ModelViewSet):
         if self.action == 'create':
             return SurveyCreateSerializer
         return SurveyResponseSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filter by Status
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            if ',' in status_filter:
+                statuses = status_filter.split(',')
+                queryset = queryset.filter(status__in=statuses)
+            else:
+                queryset = queryset.filter(status=status_filter)
+            
+        # Filter by Zone
+        zone_id = self.request.query_params.get('zone')
+        if zone_id:
+            queryset = queryset.filter(zone_id=zone_id)
+            
+        # Filter by Supervisor (Show surveys from their zone)
+        supervisor_id = self.request.query_params.get('supervisor')
+        if supervisor_id:
+            from accounts.models import User
+            try:
+                supervisor = User.objects.get(id=supervisor_id, role='SUPERVISOR')
+                if supervisor.zone:
+                    queryset = queryset.filter(zone=supervisor.zone)
+            except User.DoesNotExist:
+                pass
+                
+        return queryset
     
     def perform_create(self, serializer):
         """Create survey with surveyor and zone from user."""
@@ -146,7 +205,21 @@ class SurveyViewSet(DataIsolationMixin, viewsets.ModelViewSet):
         survey.gps_latitude = gps_lat
         survey.gps_longitude = gps_lng
         survey.location_warning = location_warning
-        survey.status = SurveyResponse.Status.SUBMITTED
+        
+        # Auto-flag if new/unknown house (no master address linked)
+        # Auto-flag logic
+        if not survey.address:
+            # New/Unknown House -> Always Flag
+            survey.status = SurveyResponse.Status.FLAGGED
+            survey.add_audit_entry(user, 'FLAGGED', {'reason': 'New/Unknown address'})
+        elif location_warning:
+            # Matched Address but Wrong Location -> Flag
+            survey.status = SurveyResponse.Status.FLAGGED
+            survey.add_audit_entry(user, 'FLAGGED', {'reason': 'Location warning (GPS mismatch)'})
+        else:
+            # Matched Address and Good Location -> Submitted
+            survey.status = SurveyResponse.Status.SUBMITTED
+            
         survey.submitted_at = timezone.now()
         survey.save()
         
@@ -252,7 +325,7 @@ class SurveyViewSet(DataIsolationMixin, viewsets.ModelViewSet):
         
         surveys = SurveyResponse.objects.filter(
             surveyor=request.user
-        ).exclude(status=SurveyResponse.Status.DRAFT).order_by('-submitted_at')
+        ).order_by('-updated_at')
         
         serializer = SurveyResponseListSerializer(surveys, many=True)
         
@@ -315,3 +388,52 @@ class SurveyViewSet(DataIsolationMixin, viewsets.ModelViewSet):
         
         progress.surveys_completed += 1
         progress.save()
+
+
+class AddressViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Master Address List with Pincode Validation.
+    """
+    queryset = MasterAddress.objects.all()
+    serializer_class = MasterAddressSerializer
+    permission_classes = [IsSupervisorOrSurveyor]
+    
+    def get_queryset(self):
+        """Filter addresses by zone/pincode."""
+        queryset = super().get_queryset()
+        user = self.request.user
+        
+        # Filter by Zone
+        if user.zone:
+            queryset = queryset.filter(zone=user.zone)
+            
+        # Optional Pincode Filter
+        pincode = self.request.query_params.get('pincode')
+        if pincode:
+            queryset = queryset.filter(pincode=pincode)
+            
+        return queryset
+    
+    @action(detail=False, methods=['get'])
+    def validate_pincode(self, request):
+        """
+        Validate if the pincode belongs to the user's assigned zone.
+        """
+        pincode = request.query_params.get('pincode')
+        if not pincode:
+            return Response({'valid': False, 'error': 'Pincode is required'}, status=400)
+        
+        user = request.user
+        if not user.zone:
+            return Response({'valid': False, 'error': 'User not assigned to any zone'}, status=400)
+            
+        # Check if zone code matches pincode
+        # Assuming Zone code IS the pincode or contains it
+        is_valid = user.zone.code == pincode
+        
+        return Response({
+            'valid': is_valid,
+            'zone': user.zone.name,
+            'assigned_pincode': user.zone.code
+        })
+

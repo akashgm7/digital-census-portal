@@ -128,6 +128,9 @@ export const surveyAPI = {
     flag: (id, reason) =>
         api.post(`/surveys/${id}/flag/`, { reason }),
 
+    delete: (id) =>
+        api.delete(`/surveys/${id}/`),
+
     getHistory: () =>
         api.get('/surveys/history/'),
 
@@ -141,6 +144,18 @@ export const addressAPI = {
     list: (params) =>
         api.get('/addresses/', { params }),
 
+    get: (id) =>
+        api.get(`/addresses/${id}/`),
+
+    create: (data) =>
+        api.post('/addresses/', data),
+
+    update: (id, data) =>
+        api.patch(`/addresses/${id}/`, data),
+
+    delete: (id) =>
+        api.delete(`/addresses/${id}/`),
+
     validatePincode: (pincode) =>
         api.get('/addresses/validate_pincode/', { params: { pincode } }),
 
@@ -151,8 +166,8 @@ export const addressAPI = {
 // ============ ANALYTICS APIs ============
 
 export const analyticsAPI = {
-    getAdminDashboard: () =>
-        api.get('/analytics/admin/'),
+    getAdminDashboard: (params) =>
+        api.get('/analytics/admin/', { params }),
 
     getSupervisorDashboard: (zoneId) =>
         api.get('/analytics/supervisor/', { params: { zone_id: zoneId } }),

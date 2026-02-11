@@ -56,6 +56,8 @@ function SurveyForm() {
 
     const [step, setStep] = useState(1);
     const [formData, setFormData] = useState(initialFormData);
+    const [masterAddresses, setMasterAddresses] = useState([]);
+    const [isNewAddress, setIsNewAddress] = useState(false);
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
@@ -84,6 +86,8 @@ function SurveyForm() {
                 try {
                     const response = await surveyAPI.get(surveyId);
                     setFormData(response.data);
+                    // If existing survey has address_id, we might want to load it contextually
+                    // but simplify for now
                 } catch (err) {
                     setError('Failed to load survey.');
                 }
@@ -128,49 +132,149 @@ function SurveyForm() {
         }
     };
 
+    const fetchMasterAddresses = async (pincode) => {
+        try {
+            const response = await addressAPI.list({ pincode });
+            // Handle pagination (Django REST Framework default)
+            const addresses = Array.isArray(response.data) ? response.data : (response.data.results || []);
+            setMasterAddresses(addresses);
+        } catch (err) {
+            console.error('Failed to load master addresses', err);
+            setMasterAddresses([]);
+        }
+    };
+
     const validatePincode = async (pincode) => {
         if (pincode.length !== 6) {
             setPincodeValid(null);
+            setMasterAddresses([]);
             return;
         }
 
         try {
+            console.log('Validating pincode:', pincode);
             const response = await addressAPI.validatePincode(pincode);
-            setPincodeValid(response.data.valid);
+            console.log('Pincode validation response:', response.data);
+            if (response.data.valid) {
+                setPincodeValid(true);
+                const addresses = response.data.addresses || [];
+                console.log('Loaded addresses:', addresses.length);
+                setMasterAddresses(addresses);
+            } else {
+                setPincodeValid(false);
+                setMasterAddresses([]);
+            }
         } catch (err) {
+            console.error('Pincode validation error:', err.response?.data || err.message);
             setPincodeValid(false);
+            setMasterAddresses([]);
+            setError(err.response?.data?.error || 'Pincode validation failed');
+            setTimeout(() => setError(''), 4000);
         }
     };
 
-    const nextStep = () => {
-        // Validation for Step 1 (Address)
-        if (step === 1) {
-            if (!formData.address_line || !formData.pincode) {
-                setError('Please fill in all required fields (*)');
-                // Clear error after 3 seconds
-                setTimeout(() => setError(''), 3000);
-                return;
-            }
-
-            if (pincodeValid === false) {
-                setError("Please enter a valid pincode for your assigned zone.");
-                setTimeout(() => setError(''), 3000);
-                return;
-            }
-
-            if (pincodeValid === null) {
-                setError("Please enter a valid 6-digit pincode.");
-                setTimeout(() => setError(''), 3000);
-                return;
+    const handleAddressSelect = (e) => {
+        const value = e.target.value;
+        if (value === 'NEW') {
+            setIsNewAddress(true);
+            setFormData(prev => ({
+                ...prev,
+                address_line: '',
+                landmark: '',
+                address_id: null // clear link
+            }));
+        } else {
+            setIsNewAddress(false);
+            const address = masterAddresses.find(a => a.id === value);
+            if (address) {
+                setFormData(prev => ({
+                    ...prev,
+                    address_line: address.address_line1, // Simplification
+                    landmark: address.landmark || '',
+                    address_id: address.id // Link to master address
+                }));
             }
         }
+    };
 
-        setError(''); // Clear any previous errors
-        if (step < STEPS.length) {
-            setStep(step + 1);
-            if (autoSaveHandler && !surveyId) {
-                autoSaveHandler.save(formData, step + 1);
+    const validateStep1 = () => {
+        if (!formData.address_line || !formData.pincode) {
+            setError('Please fill in all required fields (*)');
+            return false;
+        }
+        if (isNewAddress && !formData.address_line.trim().toLowerCase().startsWith('door no.')) {
+            setError('Address must begin with "Door No." (e.g. Door No. 123, Street Name)');
+            return false;
+        }
+        if (pincodeValid === false) {
+            setError("Please enter a valid pincode for your assigned zone.");
+            return false;
+        }
+        if (pincodeValid === null) {
+            setError("Please enter a valid 6-digit pincode.");
+            return false;
+        }
+        return true;
+    };
+
+    const validateStep2 = () => {
+        if (!formData.head_name || formData.head_name.length < 3) {
+            setError('Head of Household name must be at least 3 characters.');
+            return false;
+        }
+        const age = parseInt(formData.head_age);
+        if (!age || age < 18 || age > 120) {
+            setError('Please enter a valid age (18-120).');
+            return false;
+        }
+        if (!formData.head_gender) {
+            setError('Please select a gender.');
+            return false;
+        }
+        const phoneRegex = /^[6-9]\d{9}$/;
+        if (!formData.head_phone || !phoneRegex.test(formData.head_phone)) {
+            setError('Please enter a valid 10-digit mobile number starting with 6-9.');
+            return false;
+        }
+        return true;
+    };
+
+    const validateStep3 = () => {
+        const total = parseInt(formData.total_members) || 0;
+        const male = parseInt(formData.male_members) || 0;
+        const female = parseInt(formData.female_members) || 0;
+        const other = parseInt(formData.other_members) || 0;
+
+        if (total !== (male + female + other)) {
+            setError(`Total members (${total}) must equal sum of Male (${male}) + Female (${female}) + Other (${other}). Results in ${male + female + other}.`);
+            return false;
+        }
+
+        if (!formData.annual_income) {
+            setError('Please enter Annual Income.');
+            return false;
+        }
+        return true;
+    };
+
+    const nextStep = () => {
+        setError('');
+        let isValid = false;
+
+        if (step === 1) isValid = validateStep1();
+        else if (step === 2) isValid = validateStep2();
+        else if (step === 3) isValid = validateStep3();
+        else isValid = true;
+
+        if (isValid) {
+            if (step < STEPS.length) {
+                setStep(step + 1);
+                if (autoSaveHandler && !surveyId) {
+                    autoSaveHandler.save(formData, step + 1);
+                }
             }
+        } else {
+            setTimeout(() => setError(''), 4000);
         }
     };
 
@@ -199,16 +303,24 @@ function SurveyForm() {
             }
 
             let response;
+
+            // Prepare payload with correct field name for backend (address_id -> address)
+            const payload = { ...formData };
+            if (payload.address_id) {
+                payload.address = payload.address_id;
+            }
+
             if (surveyId) {
                 // Update existing
-                await surveyAPI.update(surveyId, formData);
+                await surveyAPI.update(surveyId, payload);
                 response = await surveyAPI.submit(surveyId, {
                     gps_latitude: Number(gps.latitude).toFixed(7),
                     gps_longitude: Number(gps.longitude).toFixed(7)
                 });
             } else {
                 // Create new
-                const createResponse = await surveyAPI.create(formData);
+                // If it's a new address, 'address_id' should be null or omitted
+                const createResponse = await surveyAPI.create(payload);
                 response = await surveyAPI.submit(createResponse.data.id, {
                     gps_latitude: Number(gps.latitude).toFixed(7),
                     gps_longitude: Number(gps.longitude).toFixed(7)
@@ -362,18 +474,6 @@ function SurveyForm() {
                         <h3>Address Information</h3>
                         <div className="grid grid-2">
                             <div className="form-group">
-                                <label className="form-label">Address Line *</label>
-                                <input
-                                    type="text"
-                                    name="address_line"
-                                    className="form-input"
-                                    value={formData.address_line}
-                                    onChange={handleInputChange}
-                                    onBlur={handleBlur}
-                                    required
-                                />
-                            </div>
-                            <div className="form-group">
                                 <label className="form-label">Pincode *</label>
                                 <input
                                     type="text"
@@ -392,17 +492,56 @@ function SurveyForm() {
                                     <span className="form-error">Invalid pincode for this zone</span>
                                 )}
                             </div>
-                            <div className="form-group">
-                                <label className="form-label">Landmark</label>
-                                <input
-                                    type="text"
-                                    name="landmark"
-                                    className="form-input"
-                                    value={formData.landmark}
-                                    onChange={handleInputChange}
-                                    onBlur={handleBlur}
-                                />
-                            </div>
+
+                            {pincodeValid && (
+                                <div className="form-group">
+                                    <label className="form-label">Select Address *</label>
+                                    <select
+                                        className="form-input form-select"
+                                        onChange={handleAddressSelect}
+                                        value={formData.address_id || (isNewAddress ? 'NEW' : '')}
+                                    >
+                                        <option value="">Select an address...</option>
+                                        {masterAddresses.map(addr => (
+                                            <option key={addr.id} value={addr.id}>
+                                                {addr.address_line1} {addr.landmark ? `(${addr.landmark})` : ''} - {addr.status}
+                                            </option>
+                                        ))}
+                                        <option value="NEW">+ New House / Not in List</option>
+                                    </select>
+                                </div>
+                            )}
+
+                            {(formData.address_id || isNewAddress) && (
+                                <>
+                                    <div className="form-group">
+                                        <label className="form-label">Address Line * <small style={{ color: 'var(--color-text-muted)' }}>(Must start with "Door No.")</small></label>
+                                        <input
+                                            type="text"
+                                            name="address_line"
+                                            className="form-input"
+                                            placeholder="Door No. 123, Street Name"
+                                            value={formData.address_line}
+                                            onChange={handleInputChange}
+                                            onBlur={handleBlur}
+                                            required
+                                            disabled={!!formData.address_id && !isNewAddress}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Landmark</label>
+                                        <input
+                                            type="text"
+                                            name="landmark"
+                                            className="form-input"
+                                            value={formData.landmark}
+                                            onChange={handleInputChange}
+                                            onBlur={handleBlur}
+                                            disabled={!!formData.address_id && !isNewAddress}
+                                        />
+                                    </div>
+                                </>
+                            )}
                         </div>
                     </div>
                 )}
@@ -502,21 +641,47 @@ function SurveyForm() {
                 {/* Step 3: Members */}
                 {step === 3 && (
                     <div>
-                        <h3>Household Members</h3>
-                        <div className="grid grid-2">
-                            <div className="form-group">
-                                <label className="form-label">Total Members *</label>
-                                <input
-                                    type="number"
-                                    name="total_members"
-                                    className="form-input"
-                                    value={formData.total_members}
-                                    onChange={handleInputChange}
-                                    onBlur={handleBlur}
-                                    min="1"
-                                    required
-                                />
+                        <h3 style={{ marginBottom: '24px' }}>Household Members</h3>
+
+                        <div className="card" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', marginBottom: '24px', padding: '16px' }}>
+                            <div className="grid grid-2">
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label className="form-label">Total Members *</label>
+                                    <input
+                                        type="number"
+                                        name="total_members"
+                                        className="form-input"
+                                        value={formData.total_members}
+                                        onChange={handleInputChange}
+                                        onBlur={handleBlur}
+                                        min="1"
+                                        required
+                                        style={{ fontSize: '1.25rem', fontWeight: 'bold' }}
+                                    />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label className="form-label">Annual Income *</label>
+                                    <select
+                                        name="annual_income"
+                                        className="form-input form-select"
+                                        value={formData.annual_income}
+                                        onChange={handleInputChange}
+                                        onBlur={handleBlur}
+                                        required
+                                    >
+                                        <option value="">Select Range</option>
+                                        <option value="BELOW_1L">Below ₹1 Lakh</option>
+                                        <option value="1L_3L">₹1 - 3 Lakh</option>
+                                        <option value="3L_5L">₹3 - 5 Lakh</option>
+                                        <option value="5L_10L">₹5 - 10 Lakh</option>
+                                        <option value="ABOVE_10L">Above ₹10 Lakh</option>
+                                    </select>
+                                </div>
                             </div>
+                        </div>
+
+                        <h4 style={{ marginBottom: '16px', color: 'var(--color-text-secondary)' }}>Member Breakdown</h4>
+                        <div className="grid grid-2">
                             <div className="form-group">
                                 <label className="form-label">Male Members</label>
                                 <input
@@ -536,18 +701,6 @@ function SurveyForm() {
                                     name="female_members"
                                     className="form-input"
                                     value={formData.female_members}
-                                    onChange={handleInputChange}
-                                    onBlur={handleBlur}
-                                    min="0"
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Other Members</label>
-                                <input
-                                    type="number"
-                                    name="other_members"
-                                    className="form-input"
-                                    value={formData.other_members}
                                     onChange={handleInputChange}
                                     onBlur={handleBlur}
                                     min="0"
@@ -578,7 +731,7 @@ function SurveyForm() {
                                 />
                             </div>
                             <div className="form-group">
-                                <label className="form-label">Seniors (Above 60)</label>
+                                <label className="form-label">Senior Citizens</label>
                                 <input
                                     type="number"
                                     name="senior_citizens"
@@ -589,27 +742,22 @@ function SurveyForm() {
                                     min="0"
                                 />
                             </div>
-                        </div>
-
-                        <h4 style={{ marginTop: '24px' }}>Household Facilities</h4>
-                        <div className="grid grid-2">
                             <div className="form-group">
-                                <label className="form-label">Annual Income</label>
-                                <select
-                                    name="annual_income"
-                                    className="form-input form-select"
-                                    value={formData.annual_income}
+                                <label className="form-label">Other Members</label>
+                                <input
+                                    type="number"
+                                    name="other_members"
+                                    className="form-input"
+                                    value={formData.other_members}
                                     onChange={handleInputChange}
                                     onBlur={handleBlur}
-                                >
-                                    <option value="">Select Range</option>
-                                    <option value="BELOW_1L">Below ₹1 Lakh</option>
-                                    <option value="1L_3L">₹1 - 3 Lakh</option>
-                                    <option value="3L_5L">₹3 - 5 Lakh</option>
-                                    <option value="5L_10L">₹5 - 10 Lakh</option>
-                                    <option value="ABOVE_10L">Above ₹10 Lakh</option>
-                                </select>
+                                    min="0"
+                                />
                             </div>
+                        </div>
+
+                        <h4 style={{ marginTop: '24px', marginBottom: '16px', color: 'var(--color-text-secondary)' }}>Facilities & Ownership</h4>
+                        <div className="grid grid-2">
                             <div className="form-group">
                                 <label className="form-label">Ownership Type</label>
                                 <select
@@ -619,61 +767,52 @@ function SurveyForm() {
                                     onChange={handleInputChange}
                                     onBlur={handleBlur}
                                 >
-                                    <option value="">Select</option>
+                                    <option value="">Select Type</option>
                                     <option value="OWNED">Owned</option>
                                     <option value="RENTED">Rented</option>
                                     <option value="GOVERNMENT">Government Allotted</option>
                                 </select>
                             </div>
-                        </div>
-                        <div className="grid grid-4" style={{ marginTop: '16px' }}>
                             <div className="form-group">
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <input
-                                        type="checkbox"
-                                        name="has_electricity"
-                                        checked={formData.has_electricity}
-                                        onChange={handleInputChange}
-                                        onBlur={handleBlur}
-                                    />
-                                    Electricity
-                                </label>
-                            </div>
-                            <div className="form-group">
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <input
-                                        type="checkbox"
-                                        name="has_water_connection"
-                                        checked={formData.has_water_connection}
-                                        onChange={handleInputChange}
-                                        onBlur={handleBlur}
-                                    />
-                                    Water Connection
-                                </label>
-                            </div>
-                            <div className="form-group">
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <input
-                                        type="checkbox"
-                                        name="has_toilet"
-                                        checked={formData.has_toilet}
-                                        onChange={handleInputChange}
-                                        onBlur={handleBlur}
-                                    />
-                                    Toilet
-                                </label>
-                            </div>
-                            <div className="form-group">
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <input
-                                        type="checkbox"
-                                        name="has_lpg"
-                                        checked={formData.has_lpg}
-                                        onChange={handleInputChange}
-                                        onBlur={handleBlur}
-                                    />
-                                    LPG Connection
-                                </label>
+                                <label className="form-label">Amenities</label>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            name="has_electricity"
+                                            checked={formData.has_electricity}
+                                            onChange={handleInputChange}
+                                        />
+                                        Electricity
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            name="has_water_connection"
+                                            checked={formData.has_water_connection}
+                                            onChange={handleInputChange}
+                                        />
+                                        Water
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            name="has_toilet"
+                                            checked={formData.has_toilet}
+                                            onChange={handleInputChange}
+                                        />
+                                        Toilet
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            name="has_lpg"
+                                            checked={formData.has_lpg}
+                                            onChange={handleInputChange}
+                                        />
+                                        LPG
+                                    </label>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -682,80 +821,84 @@ function SurveyForm() {
                 {/* Step 4: Review */}
                 {step === 4 && (
                     <div>
-                        <h3>Review & Submit</h3>
+                        <h3 style={{ marginBottom: '24px' }}>Review & Submit</h3>
 
-                        <div className="alert alert-info" style={{ marginBottom: '24px' }}>
-                            Please review all information before submitting. GPS location will be captured on submit.
+                        <div className="card" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
+                            <h4 style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '12px', marginBottom: '16px' }}>Address</h4>
+                            <p><strong>Address:</strong> {formData.address_line}</p>
+                            <p><strong>Pincode:</strong> {formData.pincode}</p>
+                            {formData.landmark && <p><strong>Landmark:</strong> {formData.landmark}</p>}
                         </div>
 
-                        <div className="grid grid-2" style={{ marginBottom: '24px' }}>
-                            <div>
-                                <h4>Address</h4>
-                                <p>{formData.address_line}</p>
-                                <p>Pincode: {formData.pincode}</p>
-                                {formData.landmark && <p>Landmark: {formData.landmark}</p>}
-                            </div>
-                            <div>
-                                <h4>Household Head</h4>
-                                <p><strong>{formData.head_name}</strong></p>
-                                <p>Age: {formData.head_age} | Gender: {formData.head_gender}</p>
-                                {formData.head_phone && <p>Phone: {formData.head_phone}</p>}
+                        <div className="card" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
+                            <h4 style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '12px', marginBottom: '16px' }}>Head of Household</h4>
+                            <div className="grid grid-2">
+                                <p><strong>Name:</strong> {formData.head_name}</p>
+                                <p><strong>Phone:</strong> {formData.head_phone || 'N/A'}</p>
+                                <p><strong>Age:</strong> {formData.head_age}</p>
+                                <p><strong>Gender:</strong> {formData.head_gender}</p>
                             </div>
                         </div>
 
-                        <div style={{ marginBottom: '24px' }}>
-                            <h4>Members Summary</h4>
-                            <p>Total: {formData.total_members} | Male: {formData.male_members} | Female: {formData.female_members}</p>
+                        <div className="card" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
+                            <h4 style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '12px', marginBottom: '16px' }}>Members & Economic Status</h4>
+                            <div className="grid grid-2">
+                                <p><strong>Total Members:</strong> {formData.total_members}</p>
+                                <p><strong>Annual Income:</strong> {formData.annual_income}</p>
+                                <p><strong>Ownership:</strong> {formData.ownership_type || 'N/A'}</p>
+                            </div>
+                            <div style={{ marginTop: '16px' }}>
+                                <p><strong>Amenities:</strong> {[
+                                    formData.has_electricity && 'Electricity',
+                                    formData.has_water_connection && 'Water',
+                                    formData.has_toilet && 'Toilet',
+                                    formData.has_lpg && 'LPG'
+                                ].filter(Boolean).join(', ') || 'None'}</p>
+                            </div>
                         </div>
 
                         <div className="form-group">
-                            <label className="form-label">Additional Remarks</label>
+                            <label className="form-label">Remarks / Notes</label>
                             <textarea
                                 name="remarks"
                                 className="form-input"
+                                rows="3"
                                 value={formData.remarks}
                                 onChange={handleInputChange}
                                 onBlur={handleBlur}
-                                rows={3}
-                            />
+                                placeholder="Any additional observations..."
+                            ></textarea>
                         </div>
-
-                        {gpsError && (
-                            <div className="alert alert-warning" style={{ marginBottom: '16px' }}>
-                                {gpsError}
-                            </div>
-                        )}
                     </div>
                 )}
+            </div>
 
-                {/* Navigation Buttons */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '24px' }}>
-                    <div>
-                        {step > 1 && (
-                            <button className="btn btn-secondary" onClick={prevStep}>
-                                ← Previous
-                            </button>
-                        )}
-                    </div>
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                        <button className="btn btn-secondary" onClick={saveDraft} disabled={loading}>
-                            Save Draft
-                        </button>
-                        {step < STEPS.length ? (
-                            <button className="btn btn-primary" onClick={nextStep}>
-                                Next →
-                            </button>
-                        ) : (
-                            <button
-                                className="btn btn-success"
-                                onClick={handleSubmit}
-                                disabled={loading || gpsLoading}
-                            >
-                                {gpsLoading ? 'Capturing GPS...' : loading ? 'Submitting...' : 'Submit Survey'}
-                            </button>
-                        )}
-                    </div>
-                </div>
+            {/* Navigation Buttons */}
+            <div className="form-actions" style={{ display: 'flex', justifyContent: 'space-between', padding: '24px', background: 'white', borderTop: '1px solid var(--color-border)', position: 'sticky', bottom: 0, zIndex: 10 }}>
+                <button
+                    className="btn btn-secondary"
+                    onClick={prevStep}
+                    disabled={step === 1 || loading}
+                >
+                    Back
+                </button>
+
+                {step < STEPS.length ? (
+                    <button
+                        className="btn btn-primary"
+                        onClick={nextStep}
+                    >
+                        Next Step
+                    </button>
+                ) : (
+                    <button
+                        className="btn btn-success"
+                        onClick={handleSubmit}
+                        disabled={loading}
+                    >
+                        {loading ? 'Submitting...' : 'Submit Survey'}
+                    </button>
+                )}
             </div>
         </div>
     );

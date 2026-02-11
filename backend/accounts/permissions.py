@@ -67,16 +67,16 @@ class IsAdminOrSupervisor(permissions.BasePermission):
 
 class IsSupervisorOrSurveyor(permissions.BasePermission):
     """
-    Permission for SUPERVISOR or SURVEYOR roles.
+    Permission for ADMIN, SUPERVISOR or SURVEYOR roles.
     Used for survey-related endpoints.
     """
-    message = 'Supervisor or Surveyor access required.'
+    message = 'Admin, Supervisor or Surveyor access required.'
     
     def has_permission(self, request, view):
         return (
             request.user and 
             request.user.is_authenticated and 
-            request.user.role in ['SUPERVISOR', 'SURVEYOR']
+            request.user.role in ['ADMIN', 'SUPERVISOR', 'SURVEYOR']
         )
 
 

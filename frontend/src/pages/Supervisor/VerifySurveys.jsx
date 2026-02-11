@@ -16,7 +16,8 @@ function VerifySurveys() {
 
     const fetchSurveys = async () => {
         try {
-            const response = await surveyAPI.list({ status: 'SUBMITTED' });
+            // Fetch both SUBMITTED and FLAGGED (for new houses)
+            const response = await surveyAPI.list({ status: 'SUBMITTED,FLAGGED' });
             setSurveys(response.data.results || response.data);
         } catch (err) {
             setError('Failed to load surveys.');
@@ -117,6 +118,9 @@ function VerifySurveys() {
                                             <span className="text-muted">{survey.pincode} • {survey.total_members} members</span>
                                         </div>
                                         <div>
+                                            {!survey.address && survey.status === 'FLAGGED' && (
+                                                <span className="badge badge-flagged" style={{ marginRight: '8px', backgroundColor: '#e74c3c' }}>🏠 New</span>
+                                            )}
                                             {survey.location_warning && (
                                                 <span className="badge badge-flagged" style={{ marginRight: '8px' }}>⚠️ GPS</span>
                                             )}
@@ -139,6 +143,12 @@ function VerifySurveys() {
                             {selectedSurvey.location_warning && (
                                 <div className="alert alert-warning" style={{ marginBottom: '16px' }}>
                                     ⚠️ Survey submitted from outside designated zone area.
+                                </div>
+                            )}
+
+                            {!selectedSurvey.address && (
+                                <div className="alert alert-error" style={{ marginBottom: '16px' }}>
+                                    🏠 <strong>New/Unknown House:</strong> This survey is not linked to an existing Master Address.
                                 </div>
                             )}
 

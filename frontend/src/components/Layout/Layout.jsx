@@ -18,14 +18,18 @@ function Layout() {
         switch (user?.role) {
             case 'ADMIN':
                 return [
-                    { to: '/admin/dashboard', label: 'Dashboard' },
-                    { to: '/admin/users', label: 'User Management' },
+                    { to: '/admin/dashboard', label: 'Dashboard', icon: '📊' },
+                    { to: '/admin/analytics', label: 'Analytics', icon: '📈' },
+                    { to: '/admin/surveys', label: 'Surveys', icon: '📋' },
+                    { to: '/admin/users', label: 'User Management', icon: '👥' },
+                    { to: '/admin/addresses', label: 'Addresses' },
                     { to: '/admin/bulk-upload', label: 'Bulk Upload' },
                 ];
             case 'SUPERVISOR':
                 return [
-                    { to: '/supervisor/dashboard', label: 'Dashboard' },
-                    { to: '/supervisor/verify', label: 'Verify Surveys' },
+                    { to: '/supervisor/dashboard', label: 'Dashboard', icon: '📊' },
+                    { to: '/supervisor/surveys', label: 'Surveys', icon: '📋' },
+                    { to: '/supervisor/verify', label: 'Verify Surveys', icon: '✅' },
                 ];
             case 'SURVEYOR':
                 return [
@@ -91,8 +95,10 @@ function Layout() {
                             <NavLink
                                 to={link.to}
                                 className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
                             >
-                                {link.label}
+                                {link.icon && <span>{link.icon}</span>}
+                                <span>{link.label}</span>
                             </NavLink>
                         </li>
                     ))}
@@ -105,7 +111,7 @@ function Layout() {
                     <Outlet />
                 </div>
             </main>
-        </div>
+        </div >
     );
 }
 

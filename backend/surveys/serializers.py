@@ -16,6 +16,14 @@ class MasterAddressSerializer(serializers.ModelSerializer):
                   'landmark', 'building_number', 'floor_number', 'status', 
                   'latitude', 'longitude', 'needs_review']
         read_only_fields = ['id']
+    
+    def validate_address_line1(self, value):
+        """Ensure address starts with 'Door No.'"""
+        if not value.strip().lower().startswith('door no.'):
+            raise serializers.ValidationError(
+                'Address must begin with "Door No." (e.g. Door No. 123, Street Name)'
+            )
+        return value
 
 
 class MasterAddressUpdateSerializer(serializers.ModelSerializer):
@@ -29,12 +37,13 @@ class MasterAddressUpdateSerializer(serializers.ModelSerializer):
 class SurveyResponseListSerializer(serializers.ModelSerializer):
     """Light serializer for survey list views."""
     surveyor_name = serializers.CharField(source='surveyor.full_name', read_only=True)
+    zone_name = serializers.CharField(source='zone.name', read_only=True)
     
     class Meta:
         model = SurveyResponse
-        fields = ['id', 'surveyor', 'surveyor_name', 'status', 'head_name', 
-                  'pincode', 'total_members', 'created_at', 'submitted_at', 
-                  'location_warning']
+        fields = ['id', 'surveyor', 'surveyor_name', 'zone_name', 'address', 'status', 'head_name', 
+                  'pincode', 'address_line', 'head_phone', 'total_members', 
+                  'created_at', 'submitted_at', 'location_warning']
 
 
 class SurveyResponseSerializer(serializers.ModelSerializer):
@@ -49,6 +58,19 @@ class SurveyResponseSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['id', 'surveyor', 'zone', 'submitted_at', 'verified_at', 
                            'verified_by', 'audit_trail', 'location_warning']
+        
+    def create(self, validated_data):
+        """Handle linking to MasterAddress."""
+        request = self.context.get('request')
+        if request and hasattr(request, 'user'):
+             validated_data['surveyor'] = request.user
+             validated_data['zone'] = request.user.zone
+             
+        # If address_id provided, link it
+        # Note: frontend sends 'address' as ID because it's a ForeignKey in model
+        # serializer handles it if field is PrimaryKeyRelatedField (default)
+        
+        return super().create(validated_data)
     
     def validate(self, data):
         """Apply dynamic validation rules from PRD."""
@@ -90,15 +112,40 @@ class SurveyCreateSerializer(serializers.ModelSerializer):
         model = SurveyResponse
         exclude = ['surveyor', 'zone', 'submitted_at', 'verified_at', 
                    'verified_by', 'audit_trail', 'location_warning']
+        # Allow these to be empty for drafts
+        extra_kwargs = {
+            'head_name': {'required': False, 'allow_blank': True},
+            'head_gender': {'required': False, 'allow_blank': True},
+            'head_age': {'required': False},
+            'pincode': {'required': False, 'allow_blank': True},
+            'address_line': {'required': False, 'allow_blank': True},
+        }
     
     def validate(self, data):
         """Apply dynamic validation rules (skip for drafts)."""
         # Skip strict validation for drafts - allow incomplete data
         if data.get('status') == 'DRAFT':
+            # Provide defaults for mandatory DB fields if missing
+            if not data.get('head_name'):
+                data['head_name'] = 'Draft'
+            if not data.get('head_gender'):
+                data['head_gender'] = 'OTHER'
+            if not data.get('head_age'):
+                data['head_age'] = 0
+            if not data.get('pincode'):
+                data['pincode'] = '000000'
+            if not data.get('address_line'):
+                data['address_line'] = 'Draft Address'
             return data
             
         # Full validation for submitted surveys
         errors = {}
+        
+        # 1. Required fields check (manually enforce since we relaxed extra_kwargs)
+        required_fields = ['head_name', 'head_gender', 'head_age', 'pincode', 'address_line']
+        for field in required_fields:
+            if not data.get(field):
+                errors[field] = 'This field is required.'
         
         head_age = data.get('head_age', 0)
         head_occupation = data.get('head_occupation', '')

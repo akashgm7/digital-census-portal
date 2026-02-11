@@ -7,10 +7,11 @@ from rest_framework.response import Response
 
 from .models import MasterAddress
 from .serializers import MasterAddressSerializer, MasterAddressUpdateSerializer
-from accounts.permissions import IsSurveyor, IsAdmin, DataIsolationMixin
+from accounts.permissions import IsSurveyor, IsAdmin, IsAdminOrSupervisor, DataIsolationMixin
+from rest_framework.permissions import IsAuthenticated
 
 
-class MasterAddressViewSet(DataIsolationMixin, viewsets.ModelViewSet):
+class MasterAddressViewSet(viewsets.ModelViewSet):
     """
     Address management with zone/pincode validation.
     
@@ -22,11 +23,12 @@ class MasterAddressViewSet(DataIsolationMixin, viewsets.ModelViewSet):
     - Full CRUD on addresses
     """
     queryset = MasterAddress.objects.select_related('zone').all()
+    pagination_class = None  # Return all addresses without pagination
     
     def get_permissions(self):
-        if self.action in ['create', 'destroy']:
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [IsAdmin()]
-        return [IsSurveyor()]
+        return [IsAuthenticated()]
     
     def get_serializer_class(self):
         if self.action in ['update', 'partial_update', 'mark_status']:
@@ -34,21 +36,32 @@ class MasterAddressViewSet(DataIsolationMixin, viewsets.ModelViewSet):
         return MasterAddressSerializer
     
     def get_queryset(self):
-        """Filter by zone for surveyors/supervisors."""
+        """
+        Admin: all addresses
+        Supervisor/Surveyor: only their zone's addresses
+        """
         queryset = super().get_queryset()
         user = self.request.user
+        
+        if not user.is_authenticated:
+            return queryset.none()
+        
+        # Admin sees everything, others see only their zone
+        if user.role != 'ADMIN' and user.zone:
+            queryset = queryset.filter(zone=user.zone)
+        elif user.role != 'ADMIN' and not user.zone:
+            return queryset.none()
         
         # Filter by pincode if provided
         pincode = self.request.query_params.get('pincode')
         if pincode:
             queryset = queryset.filter(pincode=pincode)
         
-        # Only show active addresses by default
+        # Filter by status if provided, else exclude demolished
         status_filter = self.request.query_params.get('status')
         if status_filter:
             queryset = queryset.filter(status=status_filter)
         else:
-            # Exclude demolished by default
             queryset = queryset.exclude(status='DEMOLISHED')
         
         return queryset

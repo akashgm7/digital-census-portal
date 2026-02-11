@@ -25,6 +25,18 @@ function SurveyHistory() {
         setLoading(false);
     };
 
+    const handleDelete = async (id) => {
+        if (window.confirm('Are you sure you want to delete this survey? This action cannot be undone.')) {
+            try {
+                await surveyAPI.delete(id);
+                setSurveys(surveys.filter(s => s.id !== id));
+            } catch (err) {
+                console.error(err);
+                alert('Failed to delete survey.');
+            }
+        }
+    };
+
     const filteredSurveys = surveys.filter(s => {
         if (filter === 'all') return true;
         return s.status.toLowerCase() === filter;
@@ -96,25 +108,46 @@ function SurveyHistory() {
                                                 : '-'}
                                         </td>
                                         <td>
-                                            {survey.status === 'DRAFT' ? (
-                                                <Link
-                                                    to={`/surveyor/survey/${survey.id}`}
-                                                    className="btn btn-primary"
-                                                    style={{ padding: '4px 12px', minHeight: 'auto', minWidth: 'auto' }}
-                                                >
-                                                    Continue
-                                                </Link>
-                                            ) : survey.status === 'SUBMITTED' || survey.status === 'FLAGGED' ? (
-                                                <Link
-                                                    to={`/surveyor/survey/${survey.id}`}
-                                                    className="btn btn-secondary"
-                                                    style={{ padding: '4px 12px', minHeight: 'auto', minWidth: 'auto' }}
-                                                >
-                                                    Edit
-                                                </Link>
-                                            ) : (
-                                                <span className="text-muted">Locked</span>
-                                            )}
+                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                {survey.status === 'DRAFT' ? (
+                                                    <Link
+                                                        to={`/surveyor/survey/${survey.id}`}
+                                                        className="btn btn-primary"
+                                                        style={{ padding: '4px 12px', minHeight: 'auto', minWidth: 'auto' }}
+                                                    >
+                                                        Continue
+                                                    </Link>
+                                                ) : survey.status === 'SUBMITTED' || survey.status === 'FLAGGED' ? (
+                                                    <Link
+                                                        to={`/surveyor/survey/${survey.id}`}
+                                                        className="btn btn-secondary"
+                                                        style={{ padding: '4px 12px', minHeight: 'auto', minWidth: 'auto' }}
+                                                    >
+                                                        Edit
+                                                    </Link>
+                                                ) : (
+                                                    <span className="text-muted">Locked</span>
+                                                )}
+
+                                                {survey.status !== 'VERIFIED' && (
+                                                    <button
+                                                        onClick={() => handleDelete(survey.id)}
+                                                        className="btn"
+                                                        style={{
+                                                            padding: '4px 12px',
+                                                            minHeight: 'auto',
+                                                            minWidth: 'auto',
+                                                            backgroundColor: '#dc3545',
+                                                            color: 'white',
+                                                            border: 'none',
+                                                            cursor: 'pointer'
+                                                        }}
+                                                        title="Delete Survey"
+                                                    >
+                                                        Delete
+                                                    </button>
+                                                )}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
