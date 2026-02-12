@@ -24,6 +24,9 @@ import AdminAnalytics from './pages/Admin/Analytics/AdminAnalytics';
 import AdminSurveyList from './pages/Admin/AdminSurveyList';
 
 
+import AdminSurveyDetail from './pages/Admin/AdminSurveyDetail';
+
+
 // Supervisor Pages
 import SupervisorDashboard from './pages/Supervisor/SupervisorDashboard';
 import VerifySurveys from './pages/Supervisor/VerifySurveys';
@@ -104,6 +107,7 @@ function App() {
                     <Route path="analytics" element={<AdminAnalytics />} />
                     <Route path="users" element={<UserManagement />} />
                     <Route path="surveys" element={<AdminSurveyList />} />
+                    <Route path="survey/:id" element={<AdminSurveyDetail />} />
                     <Route path="bulk-upload" element={<BulkUpload />} />
                     <Route path="addresses" element={<AddressManagement />} />
                 </Route>

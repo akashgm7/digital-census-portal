@@ -118,15 +118,14 @@ function LoginPage() {
 
                 {devMode && (
                     <div style={{ marginTop: '24px', padding: '16px', backgroundColor: 'var(--color-background)', borderRadius: '4px' }}>
-                        <p style={{ fontWeight: '600', marginBottom: '8px' }}>Test Accounts:</p>
                         <p className="text-muted" style={{ fontSize: '14px', marginBottom: '4px' }}>
                             Admin: <code>9876543210</code>
                         </p>
                         <p className="text-muted" style={{ fontSize: '14px', marginBottom: '4px' }}>
-                            Supervisor: <code>9876543200</code>
+                            Supervisor: <code>9876500000</code>
                         </p>
                         <p className="text-muted" style={{ fontSize: '14px', marginBottom: '0' }}>
-                            Surveyor: <code>9876500000</code>
+                            Surveyor: <code>9876500001</code>
                         </p>
                     </div>
                 )}

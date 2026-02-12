@@ -1,19 +1,29 @@
-/**
- * Survey History Page for Surveyors.
- */
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { surveyAPI } from '../../services/api';
+import ConfirmationModal from '../../components/ConfirmationModal';
+import MessageModal from '../../components/MessageModal';
 
 function SurveyHistory() {
+    const location = useLocation();
     const [surveys, setSurveys] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [filter, setFilter] = useState('all');
 
+    // Modal states
+    const [deleteId, setDeleteId] = useState(null);
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [messageModal, setMessageModal] = useState({ show: false, title: '', message: '', type: 'info' });
+
     useEffect(() => {
+        const queryParams = new URLSearchParams(location.search);
+        const filterParam = queryParams.get('filter');
+        if (filterParam) {
+            setFilter(filterParam);
+        }
         fetchSurveys();
-    }, []);
+    }, [location.search]);
 
     const fetchSurveys = async () => {
         try {
@@ -25,20 +35,30 @@ function SurveyHistory() {
         setLoading(false);
     };
 
-    const handleDelete = async (id) => {
-        if (window.confirm('Are you sure you want to delete this survey? This action cannot be undone.')) {
-            try {
-                await surveyAPI.delete(id);
-                setSurveys(surveys.filter(s => s.id !== id));
-            } catch (err) {
-                console.error(err);
-                alert('Failed to delete survey.');
-            }
+    const handleDeleteClick = (id) => {
+        setDeleteId(id);
+        setShowDeleteModal(true);
+    };
+
+    const confirmDelete = async () => {
+        if (!deleteId) return;
+
+        try {
+            await surveyAPI.delete(deleteId);
+            setSurveys(surveys.filter(s => s.id !== deleteId));
+            setMessageModal({ show: true, title: 'Success', message: 'Survey deleted successfully.', type: 'success' });
+        } catch (err) {
+            console.error(err);
+            setMessageModal({ show: true, title: 'Error', message: 'Failed to delete survey.', type: 'error' });
+        } finally {
+            setShowDeleteModal(false);
+            setDeleteId(null);
         }
     };
 
     const filteredSurveys = surveys.filter(s => {
         if (filter === 'all') return true;
+        if (filter === 'new') return s.is_new_house;
         return s.status.toLowerCase() === filter;
     });
 
@@ -52,7 +72,7 @@ function SurveyHistory() {
 
             {/* Filter Tabs */}
             <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
-                {['all', 'draft', 'submitted', 'verified', 'flagged'].map(f => (
+                {['all', 'draft', 'submitted', 'verified', 'flagged', 'new'].map(f => (
                     <button
                         key={f}
                         className={`btn ${filter === f ? 'btn-primary' : 'btn-secondary'}`}
@@ -97,8 +117,18 @@ function SurveyHistory() {
                                                 {survey.status}
                                             </span>
                                             {survey.location_warning && (
-                                                <span className="badge badge-flagged" style={{ marginLeft: '4px' }}>
-                                                    ⚠️ GPS
+                                                <span className="badge badge-flagged" style={{
+                                                    marginLeft: '4px',
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '2px'
+                                                }} title="GPS location mismatch">
+                                                    ⚠️ <span style={{ fontSize: '0.8em' }}>GPS</span>
+                                                </span>
+                                            )}
+                                            {survey.is_new_house && (
+                                                <span className="badge badge-info" style={{ marginLeft: '4px', backgroundColor: '#17a2b8', color: 'white' }}>
+                                                    🏠 New
                                                 </span>
                                             )}
                                         </td>
@@ -131,7 +161,7 @@ function SurveyHistory() {
 
                                                 {survey.status !== 'VERIFIED' && (
                                                     <button
-                                                        onClick={() => handleDelete(survey.id)}
+                                                        onClick={() => handleDeleteClick(survey.id)}
                                                         className="btn"
                                                         style={{
                                                             padding: '4px 12px',
@@ -156,6 +186,26 @@ function SurveyHistory() {
                     </div>
                 )}
             </div>
+
+            {/* Custom Modals */}
+            <ConfirmationModal
+                isOpen={showDeleteModal}
+                title="Delete Survey"
+                message="Are you sure you want to delete this survey? This action cannot be undone."
+                onConfirm={confirmDelete}
+                onCancel={() => setShowDeleteModal(false)}
+                confirmText="Delete"
+                cancelText="Cancel"
+                type="error"
+            />
+
+            <MessageModal
+                isOpen={messageModal.show}
+                title={messageModal.title}
+                message={messageModal.message}
+                type={messageModal.type}
+                onClose={() => setMessageModal({ ...messageModal, show: false })}
+            />
         </div>
     );
 }

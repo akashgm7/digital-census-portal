@@ -2,37 +2,51 @@
  * Admin Survey List - View and filter all surveys.
  */
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { surveyAPI, zoneAPI, userAPI } from '../../services/api';
 
 function AdminSurveyList() {
+    const [searchParams] = useSearchParams();
     const [surveys, setSurveys] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
     // Filters
     const [zones, setZones] = useState([]);
-    const [supervisors, setSupervisors] = useState([]);
-    const [selectedZone, setSelectedZone] = useState('');
-    const [selectedSupervisor, setSelectedSupervisor] = useState('');
-    const [selectedStatus, setSelectedStatus] = useState('');
+    const [surveyors, setSurveyors] = useState([]);
+
+    // Initialize from URL params or default to empty
+    const [selectedZone, setSelectedZone] = useState(searchParams.get('zone_id') || '');
+    const [selectedSurveyor, setSelectedSurveyor] = useState(searchParams.get('surveyor_id') || '');
+    const [selectedStatus, setSelectedStatus] = useState(searchParams.get('status') || '');
 
     useEffect(() => {
         fetchInitialData();
     }, []);
 
+    // Update filters if URL changes (e.g. back button navigation)
+    useEffect(() => {
+        const status = searchParams.get('status');
+        const zoneId = searchParams.get('zone_id');
+        const surveyorId = searchParams.get('surveyor_id');
+
+        if (status !== null && status !== selectedStatus) setSelectedStatus(status);
+        if (zoneId !== null && zoneId !== selectedZone) setSelectedZone(zoneId);
+        if (surveyorId !== null && surveyorId !== selectedSurveyor) setSelectedSurveyor(surveyorId);
+    }, [searchParams]);
+
     useEffect(() => {
         fetchSurveys();
-    }, [selectedZone, selectedSupervisor, selectedStatus]);
+    }, [selectedZone, selectedSurveyor, selectedStatus]);
 
     const fetchInitialData = async () => {
         try {
             const [zonesRes, usersRes] = await Promise.all([
                 zoneAPI.list(),
-                userAPI.list({ role: 'SUPERVISOR' })
+                userAPI.list({ role: 'SURVEYOR' })
             ]);
             setZones(zonesRes.data.results || zonesRes.data);
-            setSupervisors(usersRes.data.results || usersRes.data);
+            setSurveyors(usersRes.data.results || usersRes.data);
         } catch (err) {
             console.error('Failed to load filters', err);
         }
@@ -42,15 +56,18 @@ function AdminSurveyList() {
         setLoading(true);
         try {
             const params = {};
-            if (selectedZone) params.zone = selectedZone;
-            if (selectedSupervisor) params.supervisor = selectedSupervisor;
+            if (selectedZone) params.zone_id = selectedZone;
+            if (selectedSurveyor) params.surveyor_id = selectedSurveyor;
             if (selectedStatus) params.status = selectedStatus;
 
             const response = await surveyAPI.list(params);
             setSurveys(response.data.results || response.data);
         } catch (err) {
-            setError('Failed to load surveys.');
             console.error(err);
+            const msg = err.response
+                ? `Status: ${err.response.status}, Data: ${JSON.stringify(err.response.data)}`
+                : err.message;
+            setError('Failed to load surveys: ' + msg);
         }
         setLoading(false);
     };
@@ -80,16 +97,16 @@ function AdminSurveyList() {
                         </select>
                     </div>
 
-                    {/* Supervisor Filter */}
+                    {/* Surveyor Filter */}
                     <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="form-label">Filter by Supervisor</label>
+                        <label className="form-label">Filter by Surveyor</label>
                         <select
                             className="form-input"
-                            value={selectedSupervisor}
-                            onChange={(e) => setSelectedSupervisor(e.target.value)}
+                            value={selectedSurveyor}
+                            onChange={(e) => setSelectedSurveyor(e.target.value)}
                         >
-                            <option value="">All Supervisors</option>
-                            {supervisors.map(s => (
+                            <option value="">All Surveyors</option>
+                            {surveyors.map(s => (
                                 <option key={s.id} value={s.id}>{s.full_name}</option>
                             ))}
                         </select>
@@ -118,7 +135,7 @@ function AdminSurveyList() {
                             style={{ width: '100%' }}
                             onClick={() => {
                                 setSelectedZone('');
-                                setSelectedSupervisor('');
+                                setSelectedSurveyor('');
                                 setSelectedStatus('');
                             }}
                         >
@@ -168,19 +185,25 @@ function AdminSurveyList() {
                                             <span className="text-muted">{survey.pincode}</span>
                                         </td>
                                         <td>
-                                            <span className={`badge badge-${survey.status.toLowerCase()}`}>
-                                                {survey.status}
-                                            </span>
-                                            {survey.location_warning && (
-                                                <span className="badge badge-flagged" style={{ marginLeft: '4px' }}>
-                                                    ⚠️ GPS
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+                                                <span className={`badge badge-${survey.status.toLowerCase()}`}>
+                                                    {survey.status}
                                                 </span>
-                                            )}
-                                            {!survey.address && survey.status === 'FLAGGED' && (
-                                                <span className="badge badge-flagged" style={{ marginLeft: '4px', backgroundColor: '#e74c3c' }}>
-                                                    🏠 New
-                                                </span>
-                                            )}
+                                                {survey.location_warning && (
+                                                    <span className="badge badge-flagged" style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: '2px'
+                                                    }} title="GPS location mismatch">
+                                                        ⚠️ <span style={{ fontSize: '0.8em' }}>GPS</span>
+                                                    </span>
+                                                )}
+                                                {survey.is_new_house && (
+                                                    <span className="badge badge-info" style={{ backgroundColor: '#17a2b8', color: 'white' }}>
+                                                        🏠 New
+                                                    </span>
+                                                )}
+                                            </div>
                                         </td>
                                         <td>
                                             {survey.submitted_at
@@ -190,7 +213,7 @@ function AdminSurveyList() {
                                         <td>
                                             {/* Admin can always view details */}
                                             <Link
-                                                to={`/surveyor/survey/${survey.id}`}
+                                                to={`/admin/survey/${survey.id}`}
                                                 className="btn btn-secondary"
                                                 style={{ padding: '4px 12px', minHeight: 'auto', minWidth: 'auto' }}
                                             >

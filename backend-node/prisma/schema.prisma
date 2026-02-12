@@ -1,0 +1,165 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  SUPERVISOR
+  SURVEYOR
+}
+
+enum Action {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  VERIFY
+}
+
+enum AddressStatus {
+  ACTIVE
+  DEMOLISHED
+  NEW
+}
+
+enum SurveyStatus {
+  DRAFT
+  SUBMITTED
+  VERIFIED
+  FLAGGED
+}
+
+model Zone {
+  id              String   @id @default(uuid())
+  name            String
+  code            String
+  centerLatitude  Decimal  @map("center_latitude")
+  centerLongitude Decimal  @map("center_longitude")
+  radiusMeters    Int      @map("radius_meters")
+  isActive        Boolean  @default(true) @map("is_active")
+
+  users           User[]
+  masterAddresses MasterAddress[]
+  surveys         SurveyResponse[]
+
+  @@map("zones")
+}
+
+model User {
+  id          String   @id @default(uuid())
+  phoneNumber String   @unique @map("phone_number")
+  fullName    String   @map("full_name")
+  role        Role
+  firebaseUid String   @unique @map("firebase_uid")
+  dailyTarget Int      @default(0) @map("daily_target")
+  isActive    Boolean  @default(true) @map("is_active")
+
+  zoneId      String?  @map("zone_id")
+  zone        Zone?    @relation(fields: [zoneId], references: [id])
+
+  auditLogs     AuditLog[]
+  dailyProgress DailyProgress[]
+  notifications Notification[]
+  surveys       SurveyResponse[] @relation("Surveyor")
+  verifiedSurveys SurveyResponse[] @relation("Verifier")
+
+  @@index([phoneNumber])
+  @@map("users")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  action     Action
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  oldValues  Json?    @map("old_values")
+  newValues  Json?    @map("new_values")
+  timestamp  DateTime @default(now())
+
+  userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model MasterAddress {
+  id          String        @id @default(uuid())
+  pincode     String
+  addressLine1 String       @map("address_line1")
+  buildingNumber String?    @map("building_number")
+  landmark    String?       @map("landmark")
+  status      AddressStatus
+  latitude    Decimal?
+  longitude   Decimal?
+
+  zoneId      String        @map("zone_id")
+  zone        Zone          @relation(fields: [zoneId], references: [id])
+
+  surveys     SurveyResponse[]
+
+  @@map("master_addresses")
+}
+
+model SurveyResponse {
+  id             String       @id @default(uuid())
+  status         SurveyStatus @default(DRAFT)
+  headName       String?      @map("head_name")
+  headGender     String?      @map("head_gender")
+  headAge        Int?         @map("head_age")
+  familyMembers  Json?        @map("family_members")
+  schemesAvailed Json?        @map("schemes_availed")
+  gpsLatitude    Decimal?     @map("gps_latitude")
+  gpsLongitude   Decimal?     @map("gps_longitude")
+  auditTrail     Json?        @map("audit_trail")
+
+  surveyorId     String       @map("surveyor_id")
+  surveyor       User         @relation("Surveyor", fields: [surveyorId], references: [id])
+
+  verifierId     String?      @map("verifier_id")
+  verifier       User?        @relation("Verifier", fields: [verifierId], references: [id])
+
+  zoneId         String       @map("zone_id")
+  zone           Zone         @relation(fields: [zoneId], references: [id])
+
+  masterAddressId String      @map("master_address_id")
+  masterAddress   MasterAddress @relation(fields: [masterAddressId], references: [id])
+  notifications   Notification[]
+
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  @@map("survey_responses")
+}
+
+model DailyProgress {
+  id              String   @id @default(uuid())
+  date            DateTime @db.Date
+  surveysCompleted Int      @default(0) @map("surveys_completed")
+  target          Int
+
+  userId          String   @map("user_id")
+  user            User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, date])
+  @@map("daily_progress")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id])
+  type      String   // e.g., 'FLAG'
+  title     String
+  message   String
+  surveyId  String?  @map("survey_id")
+  survey    SurveyResponse? @relation(fields: [surveyId], references: [id])
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("notifications")
+}

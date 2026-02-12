@@ -51,11 +51,11 @@ export const AuthProvider = ({ children }) => {
                     phoneNumber: rawUser.phone_number || rawUser.phoneNumber, // Handle both cases just in case
                     fullName: rawUser.full_name || rawUser.fullName,
                     role: rawUser.role,
-                    zoneId: rawUser.zone || rawUser.zone_id, // API might return zone ID as 'zone' or 'zone_id'
-                    zoneName: rawUser.zone_name || rawUser.zoneName,
-                    dailyTarget: rawUser.daily_target || rawUser.dailyTarget,
-                    redirectUrl: rawUser.redirect_url || rawUser.redirectUrl,
-                    createdAt: rawUser.created_at || rawUser.createdAt,
+                    zoneId: rawUser.zoneId || rawUser.zone || rawUser.zone_id, // Handle camelCase from Prisma or snake_case from custom responses
+                    zoneName: rawUser.zoneName || rawUser.zone_name,
+                    dailyTarget: rawUser.dailyTarget || rawUser.daily_target,
+                    redirectUrl: rawUser.redirectUrl || rawUser.redirect_url,
+                    createdAt: rawUser.createdAt || rawUser.created_at,
                 };
 
                 setUser(updatedUser);
@@ -234,7 +234,7 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, error: userData.message };
             }
         } catch (error) {
-            const errorMessage = error.response?.data?.message || 'Login failed';
+            const errorMessage = error.response?.data?.error || error.response?.data?.message || 'Login failed';
             return { success: false, error: errorMessage };
         }
     };

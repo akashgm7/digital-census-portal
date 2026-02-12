@@ -37,8 +37,11 @@ function UserManagement() {
             setUsers(usersRes.data.results || usersRes.data || []);
             setZones(zonesRes.data.results || zonesRes.data || []);
         } catch (err) {
-            setError('Failed to load data.');
             console.error(err);
+            const msg = err.response
+                ? `Status: ${err.response.status}, Data: ${JSON.stringify(err.response.data)}`
+                : err.message;
+            setError('Failed to load data: ' + msg);
         }
         setLoading(false);
     };
@@ -48,29 +51,44 @@ function UserManagement() {
         setError('');
 
         try {
-            await userAPI.create(formData);
+            // Send payload matching backend expectations (shimmed in backend but good practice)
+            const payload = {
+                full_name: formData.full_name,
+                phone_number: formData.phone_number,
+                role: formData.role,
+                // Only send zone/target if relevant
+                zone_id: formData.role !== 'ADMIN' ? formData.zone : null,
+                daily_target: formData.role === 'SURVEYOR' ? formData.daily_target : 0
+            };
+
+            await userAPI.create(payload);
             setShowCreateForm(false);
             setFormData({ full_name: '', phone_number: '', role: 'SURVEYOR', zone: '', daily_target: 10 });
             fetchData();
         } catch (err) {
-            setError(err.response?.data?.message || 'Failed to create user.');
+            console.error('Create User Error:', err);
+            setError(err.response?.data?.message || err.response?.data?.error || 'Failed to create user.');
         }
     };
 
     const handleBlock = async (userId) => {
+        if (!userId) return;
         try {
             await userAPI.block(userId);
             fetchData();
         } catch (err) {
+            console.error('Block User Error:', err);
             setError('Failed to block user.');
         }
     };
 
     const handleUnblock = async (userId) => {
+        if (!userId) return;
         try {
             await userAPI.unblock(userId);
             fetchData();
         } catch (err) {
+            console.error('Unblock User Error:', err);
             setError('Failed to unblock user.');
         }
     };
@@ -182,29 +200,37 @@ function UserManagement() {
                                     <option value="ADMIN">Admin</option>
                                 </select>
                             </div>
-                            <div className="form-group">
-                                <label className="form-label">Zone</label>
-                                <select
-                                    className="form-input form-select"
-                                    value={formData.zone}
-                                    onChange={(e) => setFormData({ ...formData, zone: e.target.value })}
-                                >
-                                    <option value="">Select Zone</option>
-                                    {zones.map(zone => (
-                                        <option key={zone.id} value={zone.id}>{zone.name} ({zone.code})</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Daily Target</label>
-                                <input
-                                    type="number"
-                                    className="form-input"
-                                    value={formData.daily_target}
-                                    onChange={(e) => setFormData({ ...formData, daily_target: parseInt(e.target.value) })}
-                                    min="1"
-                                />
-                            </div>
+
+                            {/* Conditional Fields based on Role */}
+                            {formData.role !== 'ADMIN' && (
+                                <div className="form-group">
+                                    <label className="form-label">Zone</label>
+                                    <select
+                                        className="form-input form-select"
+                                        value={formData.zone}
+                                        onChange={(e) => setFormData({ ...formData, zone: e.target.value })}
+                                        required={formData.role !== 'ADMIN'}
+                                    >
+                                        <option value="">Select Zone</option>
+                                        {zones.map(zone => (
+                                            <option key={zone.id} value={zone.id}>{zone.name} ({zone.code})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
+                            {formData.role === 'SURVEYOR' && (
+                                <div className="form-group">
+                                    <label className="form-label">Daily Target</label>
+                                    <input
+                                        type="number"
+                                        className="form-input"
+                                        value={formData.daily_target}
+                                        onChange={(e) => setFormData({ ...formData, daily_target: parseInt(e.target.value) })}
+                                        min="1"
+                                    />
+                                </div>
+                            )}
                         </div>
                         <button type="submit" className="btn btn-primary">Create User</button>
                     </form>

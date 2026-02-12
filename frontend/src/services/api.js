@@ -174,6 +174,14 @@ export const analyticsAPI = {
 
     getSurveyorDashboard: () =>
         api.get('/analytics/surveyor/'),
+
+    getLeaderboard: (params) =>
+        api.get('/analytics/leaderboard', { params }),
+};
+
+export const notificationAPI = {
+    list: () => api.get('/notifications'),
+    markRead: (id) => api.put(`/notifications/${id}/read`),
 };
 
 export default api;

@@ -2,12 +2,14 @@
  * Multi-step Survey Form with auto-save and GPS capture.
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { surveyAPI, addressAPI } from '../../services/api';
 import { createAutoSave, getDraftsForSurveyor } from '../../services/indexedDB';
 import useGeolocation from '../../hooks/useGeolocation';
 import useOnlineStatus from '../../hooks/useOnlineStatus';
+import ConfirmationModal from '../../components/ConfirmationModal';
+import MessageModal from '../../components/MessageModal';
 
 const STEPS = [
     { id: 1, name: 'Address' },
@@ -49,6 +51,7 @@ const initialFormData = {
 
 function SurveyForm() {
     const { id: surveyId } = useParams();
+    const [searchParams] = useSearchParams();
     const { user } = useAuth();
     const navigate = useNavigate();
     const isOnline = useOnlineStatus();
@@ -62,7 +65,14 @@ function SurveyForm() {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [pincodeValid, setPincodeValid] = useState(null);
+    const [zoneName, setZoneName] = useState('');
     const [draftId, setDraftId] = useState(null);
+    const [addressSearch, setAddressSearch] = useState('');
+    const [showAddressDropdown, setShowAddressDropdown] = useState(false);
+
+    // Modal states
+    const [showSubmitModal, setShowSubmitModal] = useState(false);
+    const [messageModal, setMessageModal] = useState({ show: false, title: '', message: '', type: 'info', onClose: null });
 
     // Auto-save handler
     const autoSave = useCallback(() => {
@@ -82,22 +92,88 @@ function SurveyForm() {
             setLoading(true);
 
             if (surveyId) {
-                // Load existing survey from API
                 try {
                     const response = await surveyAPI.get(surveyId);
-                    setFormData(response.data);
-                    // If existing survey has address_id, we might want to load it contextually
-                    // but simplify for now
+                    const data = response.data;
+                    const fm = data.familyMembers || data.family_members || {};
+
+                    // Map all fields for frontend state
+                    const mappedData = {
+                        ...initialFormData, // start with defaults
+                        ...data,
+                        // Address mapping
+                        address_line: data.masterAddress?.addressLine1 || data.addressLine || data.address_line || '',
+                        pincode: data.masterAddress?.pincode || data.pincode || '',
+                        landmark: data.masterAddress?.landmark || data.landmark || '',
+                        address_id: data.masterAddressId || data.master_address_id || null,
+
+                        // Household Head mapping (from top level or familyMembers)
+                        head_name: data.headName || data.head_name || fm.head_name || '',
+                        head_age: data.headAge || data.head_age || fm.head_age || '',
+                        head_gender: data.headGender || data.head_gender || fm.head_gender || '',
+                        head_phone: data.headPhone || data.head_phone || fm.head_phone || '',
+                        head_occupation: data.head_occupation || fm.head_occupation || '',
+                        head_education: data.head_education || fm.head_education || '',
+
+                        // Family Member Stats
+                        total_members: fm.total_members ?? data.total_members ?? 1,
+                        male_members: fm.male_members ?? data.male_members ?? 0,
+                        female_members: fm.female_members ?? data.female_members ?? 0,
+                        other_members: fm.other_members ?? data.other_members ?? 0,
+                        children_under_5: fm.children_under_5 ?? data.children_under_5 ?? 0,
+                        children_5_to_18: fm.children_5_to_18 ?? data.children_5_to_18 ?? 0,
+                        senior_citizens: fm.senior_citizens ?? data.senior_citizens ?? 0,
+
+                        // Economic & Housing
+                        annual_income: data.annual_income || fm.annual_income || '',
+                        ownership_type: data.ownership_type || fm.ownership_type || '',
+                        has_water_connection: data.has_water_connection ?? fm.has_water_connection ?? false,
+                        has_toilet: data.has_toilet ?? fm.has_toilet ?? false,
+                        has_lpg: data.has_lpg ?? fm.has_lpg ?? false,
+                        has_electricity: data.has_electricity ?? fm.has_electricity ?? true,
+
+                        remarks: data.remarks || fm.remarks || '',
+                        status: data.status,
+                        flag_reason: data.flag_reason || null
+                    };
+
+                    setFormData(mappedData);
+
+                    if (mappedData.pincode) {
+                        validatePincode(mappedData.pincode);
+                    }
+                    if (mappedData.address_line) {
+                        setAddressSearch(String(mappedData.address_line));
+                    }
+                    if (mappedData.address_id) {
+                        setIsNewAddress(false);
+                    }
                 } catch (err) {
                     setError('Failed to load survey.');
+                    console.error(err);
                 }
             } else if (autoSaveHandler) {
-                // Check for existing drafts
-                const draft = await autoSaveHandler.loadDraft();
-                if (draft?.formData) {
-                    setFormData(draft.formData);
-                    setStep(draft.currentStep || 1);
-                    setDraftId(draft.id);
+                // If "fresh" param is present, always start empty and clear old draft
+                if (searchParams.get('fresh') === 'true') {
+                    console.log('Starting fresh survey - clearing any existing draft');
+                    await autoSaveHandler.completeDraft();
+                    setFormData(initialFormData);
+                    setStep(1);
+                    setDraftId(null);
+                } else {
+                    const draft = await autoSaveHandler.loadDraft();
+                    if (draft?.formData) {
+                        const data = draft.formData;
+                        setFormData(data);
+                        setStep(draft.currentStep || 1);
+                        setDraftId(draft.id);
+                        if (data.pincode) {
+                            validatePincode(data.pincode);
+                        }
+                        if (data.address_line) {
+                            setAddressSearch(String(data.address_line));
+                        }
+                    }
                 }
             }
 
@@ -135,7 +211,6 @@ function SurveyForm() {
     const fetchMasterAddresses = async (pincode) => {
         try {
             const response = await addressAPI.list({ pincode });
-            // Handle pagination (Django REST Framework default)
             const addresses = Array.isArray(response.data) ? response.data : (response.data.results || []);
             setMasterAddresses(addresses);
         } catch (err) {
@@ -154,15 +229,17 @@ function SurveyForm() {
         try {
             console.log('Validating pincode:', pincode);
             const response = await addressAPI.validatePincode(pincode);
-            console.log('Pincode validation response:', response.data);
             if (response.data.valid) {
                 setPincodeValid(true);
+                setZoneName(response.data.zone_name || '');
                 const addresses = response.data.addresses || [];
-                console.log('Loaded addresses:', addresses.length);
                 setMasterAddresses(addresses);
+                setError('');
             } else {
                 setPincodeValid(false);
+                setZoneName('');
                 setMasterAddresses([]);
+                setError(response.data.error || 'Pincode not in your assigned zone');
             }
         } catch (err) {
             console.error('Pincode validation error:', err.response?.data || err.message);
@@ -177,24 +254,27 @@ function SurveyForm() {
         const value = e.target.value;
         if (value === 'NEW') {
             setIsNewAddress(true);
+            setAddressSearch('New House / Not in List');
             setFormData(prev => ({
                 ...prev,
                 address_line: '',
                 landmark: '',
-                address_id: null // clear link
+                address_id: null
             }));
         } else {
             setIsNewAddress(false);
             const address = masterAddresses.find(a => a.id === value);
             if (address) {
+                setAddressSearch(String(address.address_line1 || ''));
                 setFormData(prev => ({
                     ...prev,
-                    address_line: address.address_line1, // Simplification
+                    address_line: address.address_line1,
                     landmark: address.landmark || '',
-                    address_id: address.id // Link to master address
+                    address_id: address.id
                 }));
             }
         }
+        setShowAddressDropdown(false);
     };
 
     const validateStep1 = () => {
@@ -202,12 +282,12 @@ function SurveyForm() {
             setError('Please fill in all required fields (*)');
             return false;
         }
-        if (isNewAddress && !formData.address_line.trim().toLowerCase().startsWith('door no.')) {
+        if (isNewAddress && (!formData.address_line || !formData.address_line.trim().toLowerCase().startsWith('door no.'))) {
             setError('Address must begin with "Door No." (e.g. Door No. 123, Street Name)');
             return false;
         }
         if (pincodeValid === false) {
-            setError("Please enter a valid pincode for your assigned zone.");
+            setError(error || "Please enter a valid pincode for your assigned zone.");
             return false;
         }
         if (pincodeValid === null) {
@@ -281,10 +361,17 @@ function SurveyForm() {
     const prevStep = () => {
         if (step > 1) {
             setStep(step - 1);
+        } else {
+            navigate('/surveyor/dashboard');
         }
     };
 
-    const handleSubmit = async () => {
+    const handleRequestSubmit = () => {
+        setShowSubmitModal(true);
+    };
+
+    const confirmSubmit = async () => {
+        setShowSubmitModal(false);
         setLoading(true);
         setError('');
 
@@ -297,29 +384,23 @@ function SurveyForm() {
                 gps = await getPosition();
             } catch (gpsErr) {
                 // GPS failed - we'll still submit but with default coordinates
-                // The backend will flag this with location_warning
                 gpsError = typeof gpsErr === 'string' ? gpsErr : (gpsErr?.message || 'GPS unavailable');
                 console.warn('GPS capture failed, submitting with default coordinates:', gpsError);
             }
 
             let response;
-
-            // Prepare payload with correct field name for backend (address_id -> address)
             const payload = { ...formData };
             if (payload.address_id) {
                 payload.address = payload.address_id;
             }
 
             if (surveyId) {
-                // Update existing
                 await surveyAPI.update(surveyId, payload);
                 response = await surveyAPI.submit(surveyId, {
                     gps_latitude: Number(gps.latitude).toFixed(7),
                     gps_longitude: Number(gps.longitude).toFixed(7)
                 });
             } else {
-                // Create new
-                // If it's a new address, 'address_id' should be null or omitted
                 const createResponse = await surveyAPI.create(payload);
                 response = await surveyAPI.submit(createResponse.data.id, {
                     gps_latitude: Number(gps.latitude).toFixed(7),
@@ -327,60 +408,48 @@ function SurveyForm() {
                 });
             }
 
-            // Clear draft (with error handling to prevent crashes)
+            // Clear draft
             if (autoSaveHandler) {
                 try {
                     await autoSaveHandler.completeDraft();
                 } catch (draftErr) {
                     console.warn('Failed to clear draft:', draftErr);
-                    // Continue anyway - draft cleanup is not critical
                 }
             }
 
-            // Show success and redirect
-            let message = '✓ Survey submitted successfully!';
+            // Show success modal
+            let message = 'Survey submitted successfully!';
             if (gpsError) {
-                message = `⚠️ Survey submitted (GPS unavailable: ${gpsError})`;
+                message = `Survey submitted (GPS unavailable: ${gpsError})`;
             } else if (response?.data?.location_warning) {
-                message = '⚠️ Survey submitted - Location warning flagged (submitted from different location)';
+                message = 'Survey submitted - Location warning flagged (submitted from different location)';
             }
-            alert(message);
-            navigate('/surveyor/dashboard');
+
+            setMessageModal({
+                show: true,
+                title: 'Success',
+                message: message,
+                type: 'success',
+                onClose: () => {
+                    setMessageModal({ ...messageModal, show: false });
+                    navigate('/surveyor/dashboard');
+                }
+            });
 
         } catch (err) {
-            // Extract detailed error message from API response
-            let errorMessage = 'Failed to submit survey. Please try again.';
+            // Extract detailed error message
+            let errorMessage = 'Failed to submit survey.';
+            if (typeof err === 'string') errorMessage = err;
+            else if (err.response?.data?.error) errorMessage = typeof err.response.data.error === 'object' ? JSON.stringify(err.response.data.error) : err.response.data.error;
+            else if (err.message) errorMessage = err.message;
 
-            // Handle string errors (from GPS rejection)
-            if (typeof err === 'string') {
-                errorMessage = err;
-            } else if (err.response?.data) {
-                const data = err.response.data;
-                if (typeof data === 'string') {
-                    errorMessage = data;
-                } else if (data.error) {
-                    errorMessage = typeof data.error === 'object' ? JSON.stringify(data.error) : data.error;
-                } else if (data.detail) {
-                    // Handle if detail is an object (causing the crash)
-                    errorMessage = typeof data.detail === 'object'
-                        ? (data.detail.message || JSON.stringify(data.detail))
-                        : data.detail;
-                } else if (typeof data === 'object') {
-                    // Handle field-level validation errors
-                    const fieldErrors = Object.entries(data)
-                        .map(([field, errors]) => {
-                            const errorMsg = Array.isArray(errors) ? errors.join(', ') : (typeof errors === 'object' ? JSON.stringify(errors) : errors);
-                            return `${field}: ${errorMsg}`;
-                        })
-                        .join('; ');
-                    if (fieldErrors) {
-                        errorMessage = fieldErrors;
-                    }
-                }
-            } else if (err.message) {
-                errorMessage = err.message;
-            }
-            setError(errorMessage);
+            setMessageModal({
+                show: true,
+                title: 'Error',
+                message: errorMessage,
+                type: 'error',
+                onClose: () => setMessageModal({ ...messageModal, show: false })
+            });
             console.error('Survey submission error:', err);
         }
 
@@ -403,39 +472,25 @@ function SurveyForm() {
                     }
                 }
             }
-            alert('✓ Draft saved successfully!');
-            navigate('/surveyor/dashboard');
-        } catch (err) {
-            // Extract detailed error message
-            let errorMessage = 'Failed to save draft.';
-            if (typeof err === 'string') {
-                errorMessage = err;
-            } else if (err.response?.data) {
-                const data = err.response.data;
-                if (typeof data === 'string') {
-                    errorMessage = data;
-                } else if (data.error) {
-                    errorMessage = typeof data.error === 'object' ? JSON.stringify(data.error) : data.error;
-                } else if (data.detail) {
-                    errorMessage = typeof data.detail === 'object'
-                        ? (data.detail.message || JSON.stringify(data.detail))
-                        : data.detail;
-                } else if (typeof data === 'object') {
-                    const fieldErrors = Object.entries(data)
-                        .map(([field, errors]) => {
-                            const errorMsg = Array.isArray(errors) ? errors.join(', ') : (typeof errors === 'object' ? JSON.stringify(errors) : errors);
-                            return `${field}: ${errorMsg}`;
-                        })
-                        .join('; ');
-                    if (fieldErrors) {
-                        errorMessage = fieldErrors;
-                    }
+            setMessageModal({
+                show: true,
+                title: 'Draft Saved',
+                message: 'Your survey draft has been saved successfully.',
+                type: 'success',
+                onClose: () => {
+                    setMessageModal({ ...messageModal, show: false });
+                    navigate('/surveyor/dashboard');
                 }
-            } else if (err.message) {
-                errorMessage = err.message;
-            }
-            setError(errorMessage);
+            });
+        } catch (err) {
             console.error('Save draft error:', err);
+            setMessageModal({
+                show: true,
+                title: 'Error',
+                message: 'Failed to save draft.',
+                type: 'error',
+                onClose: () => setMessageModal({ ...messageModal, show: false })
+            });
         }
         setLoading(false);
     };
@@ -465,9 +520,17 @@ function SurveyForm() {
                 ))}
             </div>
 
+            {/* Flag Reason Alert */}
+            {formData.status === 'FLAGGED' && formData.flag_reason && (
+                <div className="alert alert-error" style={{ marginBottom: '24px', backgroundColor: '#fff5f5', color: '#c53030', borderColor: '#fc8181' }}>
+                    <strong>⚠️ Flagged for Review:</strong> {formData.flag_reason}
+                    <div style={{ fontSize: '0.9em', marginTop: '4px' }}>Please correct the information and re-submit.</div>
+                </div>
+            )}
+
             {error && <div className="alert alert-error">{error}</div>}
 
-            <div className="card">
+            <div className="card" style={{ overflow: 'visible' }}>
                 {/* Step 1: Address */}
                 {step === 1 && (
                     <div>
@@ -491,24 +554,130 @@ function SurveyForm() {
                                 {pincodeValid === false && (
                                     <span className="form-error">Invalid pincode for this zone</span>
                                 )}
+                                {pincodeValid === true && zoneName && (
+                                    <div style={{ marginTop: '8px', padding: '8px', backgroundColor: 'var(--color-success-light, #e6fffa)', border: '1px solid var(--color-success, #38b2ac)', borderRadius: '4px', fontSize: '13px', color: 'var(--color-success-text, #234e52)' }}>
+                                        <strong>Zone:</strong> {zoneName}
+                                    </div>
+                                )}
                             </div>
 
                             {pincodeValid && (
-                                <div className="form-group">
-                                    <label className="form-label">Select Address *</label>
-                                    <select
-                                        className="form-input form-select"
-                                        onChange={handleAddressSelect}
-                                        value={formData.address_id || (isNewAddress ? 'NEW' : '')}
-                                    >
-                                        <option value="">Select an address...</option>
-                                        {masterAddresses.map(addr => (
-                                            <option key={addr.id} value={addr.id}>
-                                                {addr.address_line1} {addr.landmark ? `(${addr.landmark})` : ''} - {addr.status}
-                                            </option>
-                                        ))}
-                                        <option value="NEW">+ New House / Not in List</option>
-                                    </select>
+                                <div className="form-group" style={{ position: 'relative' }}>
+                                    <label className="form-label">Search Master Address *</label>
+                                    <div style={{ position: 'relative', zIndex: 2000 }}>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            placeholder="Type Door No. or Street to search..."
+                                            value={addressSearch}
+                                            onChange={(e) => {
+                                                setAddressSearch(e.target.value);
+                                                setShowAddressDropdown(true);
+                                            }}
+                                            onFocus={() => setShowAddressDropdown(true)}
+                                            onBlur={() => setTimeout(() => setShowAddressDropdown(false), 200)}
+                                        />
+                                        {formData.address_id && (
+                                            <div style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-success, #38b2ac)' }}>
+                                                ✓ Linked to Master
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {showAddressDropdown && pincodeValid && (
+                                        <div className="card" style={{
+                                            position: 'absolute',
+                                            top: '100%',
+                                            left: 0,
+                                            right: 0,
+                                            zIndex: 9999, // Ensure it's on top of everything
+                                            maxHeight: '300px', // Increased height
+                                            overflowY: 'auto',
+                                            marginTop: '4px',
+                                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                                            padding: '0',
+                                            border: '1px solid #e2e8f0' // Added border for better definition
+                                        }}>
+                                            <div
+                                                className="dropdown-item"
+                                                style={{ padding: '10px 15px', borderBottom: '1px solid #edf2f7', cursor: 'pointer', backgroundColor: isNewAddress ? '#f7fafc' : 'white' }}
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    handleAddressSelect({ target: { value: 'NEW' } });
+                                                    setAddressSearch('New House / Not in List');
+                                                }}
+                                            >
+                                                <strong>+ New House / Not in List</strong>
+                                            </div>
+                                            {masterAddresses
+                                                .filter(addr => {
+                                                    const search = (addressSearch || '').toLowerCase();
+                                                    const line1 = (addr.address_line1 || '').toLowerCase();
+                                                    const bldg = (addr.building_number || '').toLowerCase();
+                                                    const land = (addr.landmark || '').toLowerCase();
+                                                    return line1.includes(search) || (bldg && bldg.includes(search)) || land.includes(search);
+                                                })
+                                                .map(addr => {
+                                                    const isTaken = addr.is_taken;
+                                                    return (
+                                                        <div
+                                                            key={addr.id}
+                                                            className="dropdown-item"
+                                                            style={{
+                                                                padding: '12px 15px',
+                                                                borderBottom: '1px solid #edf2f7',
+                                                                cursor: isTaken ? 'not-allowed' : 'pointer',
+                                                                transition: 'background-color 0.2s',
+                                                                opacity: isTaken ? 0.7 : 1,
+                                                                backgroundColor: isTaken ? '#f7fafc' : 'white'
+                                                            }}
+                                                            onMouseDown={(e) => {
+                                                                e.preventDefault();
+                                                                if (isTaken) return;
+                                                                handleAddressSelect({ target: { value: addr.id } });
+                                                                setAddressSearch(addr.address_line1);
+                                                            }}
+                                                            onMouseEnter={(e) => {
+                                                                if (!isTaken) e.currentTarget.style.backgroundColor = '#f7fafc';
+                                                            }}
+                                                            onMouseLeave={(e) => {
+                                                                if (!isTaken) e.currentTarget.style.backgroundColor = 'white';
+                                                            }}
+                                                        >
+                                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                                                                <div>
+                                                                    <div style={{ fontWeight: '600', color: '#2d3748', fontSize: '0.95rem' }}>{addr.address_line1}</div>
+                                                                    <div style={{ color: '#4a5568', fontSize: '0.85rem', marginTop: '2px' }}>
+                                                                        {addr.landmark ? (
+                                                                            <span style={{ fontWeight: '500' }}>📍 {addr.landmark}</span>
+                                                                        ) : null}
+                                                                        {addr.landmark ? ' • ' : ''}
+                                                                        <span style={{
+                                                                            color: addr.status === 'ACTIVE' ? '#38a169' : '#e53e3e',
+                                                                            fontWeight: 'bold',
+                                                                            textTransform: 'uppercase',
+                                                                            fontSize: '0.75rem'
+                                                                        }}>
+                                                                            {addr.status}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                                {isTaken && (
+                                                                    <div style={{ textAlign: 'right', marginLeft: '12px' }}>
+                                                                        <span className="badge badge-flagged" style={{ fontSize: '10px', whiteSpace: 'nowrap' }}>
+                                                                            🚫 Taken
+                                                                        </span>
+                                                                        <div style={{ fontSize: '10px', color: '#e53e3e', marginTop: '2px', fontWeight: '500' }}>
+                                                                            by {addr.surveyor_name?.split(' ')[0] || 'Surveyor'}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
@@ -520,9 +689,11 @@ function SurveyForm() {
                                             type="text"
                                             name="address_line"
                                             className="form-input"
-                                            placeholder="Door No. 123, Street Name"
+                                            placeholder="e.g. Door No. 123, Street Name"
                                             value={formData.address_line}
-                                            onChange={handleInputChange}
+                                            onChange={(e) => {
+                                                handleInputChange(e);
+                                            }}
                                             onBlur={handleBlur}
                                             required
                                             disabled={!!formData.address_id && !isNewAddress}
@@ -874,14 +1045,24 @@ function SurveyForm() {
             </div>
 
             {/* Navigation Buttons */}
-            <div className="form-actions" style={{ display: 'flex', justifyContent: 'space-between', padding: '24px', background: 'white', borderTop: '1px solid var(--color-border)', position: 'sticky', bottom: 0, zIndex: 10 }}>
-                <button
-                    className="btn btn-secondary"
-                    onClick={prevStep}
-                    disabled={step === 1 || loading}
-                >
-                    Back
-                </button>
+            <div className="form-actions" style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px', padding: '24px', background: 'white', borderTop: '1px solid var(--color-border)', marginTop: '24px' }}>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                        className="btn btn-secondary"
+                        onClick={prevStep}
+                        disabled={loading}
+                    >
+                        {step === 1 ? 'Cancel' : 'Back'}
+                    </button>
+                    <button
+                        className="btn btn-secondary"
+                        style={{ borderColor: '#e2e8f0', background: 'white', color: '#4a5568' }}
+                        onClick={saveDraft}
+                        disabled={loading}
+                    >
+                        Save Draft
+                    </button>
+                </div>
 
                 {step < STEPS.length ? (
                     <button
@@ -893,13 +1074,39 @@ function SurveyForm() {
                 ) : (
                     <button
                         className="btn btn-success"
-                        onClick={handleSubmit}
+                        onClick={handleRequestSubmit}
                         disabled={loading}
                     >
                         {loading ? 'Submitting...' : 'Submit Survey'}
                     </button>
                 )}
             </div>
+
+            {/* Modals */}
+            <ConfirmationModal
+                isOpen={showSubmitModal}
+                title="Confirm Submission"
+                message="Are you sure you want to submit this survey? Please ensure all details are correct."
+                onConfirm={confirmSubmit}
+                onCancel={() => setShowSubmitModal(false)}
+                confirmText="Submit"
+                cancelText="Cancel"
+                type="info"
+            />
+
+            <MessageModal
+                isOpen={messageModal.show}
+                title={messageModal.title}
+                message={messageModal.message}
+                type={messageModal.type}
+                onClose={() => {
+                    if (messageModal.onClose) {
+                        messageModal.onClose();
+                    } else {
+                        setMessageModal({ ...messageModal, show: false });
+                    }
+                }}
+            />
         </div>
     );
 }

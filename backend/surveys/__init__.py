@@ -1,2 +1,0 @@
-# surveys app
-default_app_config = 'surveys.apps.SurveysConfig'

@@ -2,10 +2,12 @@
  * Supervisor Survey List - View and filter surveys in their zone.
  */
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import { surveyAPI, userAPI } from '../../services/api';
 
 function SupervisorSurveyList() {
+    const { user } = useAuth();
     const [surveys, setSurveys] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -15,18 +17,37 @@ function SupervisorSurveyList() {
     const [selectedSurveyor, setSelectedSurveyor] = useState('');
     const [selectedStatus, setSelectedStatus] = useState('');
 
-    useEffect(() => {
-        fetchInitialData();
-    }, []);
+    const location = useLocation();
 
     useEffect(() => {
-        fetchSurveys();
-    }, [selectedSurveyor, selectedStatus]);
+        if (user) {
+            fetchInitialData();
+        }
+    }, [user]);
+
+    // Handle URL query parameters for initial filter state
+    useEffect(() => {
+        const queryParams = new URLSearchParams(location.search);
+        const statusParam = queryParams.get('status');
+        const surveyorParam = queryParams.get('surveyor');
+
+        if (statusParam) setSelectedStatus(statusParam);
+        if (surveyorParam) setSelectedSurveyor(surveyorParam);
+    }, [location.search]);
+
+    useEffect(() => {
+        if (user) {
+            fetchSurveys();
+        }
+    }, [selectedSurveyor, selectedStatus, user]);
 
     const fetchInitialData = async () => {
         try {
             // Supervisors see Surveyors in their zone
-            const usersRes = await userAPI.list({ role: 'SURVEYOR' });
+            const params = { role: 'SURVEYOR' };
+            if (user.zoneId) params.zone_id = user.zoneId;
+
+            const usersRes = await userAPI.list(params);
             setSurveyors(usersRes.data.results || usersRes.data);
         } catch (err) {
             console.error('Failed to load filters', err);
@@ -36,10 +57,15 @@ function SupervisorSurveyList() {
     const fetchSurveys = async () => {
         setLoading(true);
         try {
-            const params = {};
+            const params = { zone_id: user.zoneId };
             // Zone is automatically filtered by backend based on user role
-            if (selectedSurveyor) params.surveyor = selectedSurveyor; // Filter by specific surveyor
-            if (selectedStatus) params.status = selectedStatus;
+            if (selectedSurveyor) params.surveyor_id = selectedSurveyor; // Filter by specific surveyor
+
+            if (selectedStatus === 'new') {
+                params.is_new = 'true';
+            } else if (selectedStatus && selectedStatus !== 'all') {
+                params.status = selectedStatus.toUpperCase();
+            }
 
             const response = await surveyAPI.list(params);
             setSurveys(response.data.results || response.data);
@@ -75,37 +101,34 @@ function SupervisorSurveyList() {
                         </select>
                     </div>
 
-                    {/* Status Filter */}
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="form-label">Filter by Status</label>
-                        <select
-                            className="form-input"
-                            value={selectedStatus}
-                            onChange={(e) => setSelectedStatus(e.target.value)}
-                        >
-                            <option value="">All Statuses</option>
-                            <option value="DRAFT">Draft</option>
-                            <option value="SUBMITTED">Submitted</option>
-                            <option value="FLAGGED">Flagged</option>
-                            <option value="VERIFIED">Verified</option>
-                            <option value="REJECTED">Rejected</option>
-                        </select>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'end' }}>
-                        <button
-                            className="btn btn-secondary"
-                            onClick={() => {
-                                setSelectedSurveyor('');
-                                setSelectedStatus('');
-                            }}
-                            style={{ width: '100%' }}
-                        >
-                            Reset Filters
-                        </button>
-                    </div>
                 </div>
+
             </div>
+
+            {/* Status Filter Tabs */}
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', overflowX: 'auto', paddingBottom: '4px' }}>
+                {['all', 'draft', 'submitted', 'verified', 'flagged', 'new'].map(f => (
+                    <button
+                        key={f}
+                        className={`btn ${selectedStatus === f ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '8px 16px', minHeight: 'auto', whiteSpace: 'nowrap' }}
+                        onClick={() => setSelectedStatus(f)}
+                    >
+                        {f.charAt(0).toUpperCase() + f.slice(1)}
+                    </button>
+                ))}
+                <button
+                    className="btn btn-secondary"
+                    onClick={() => {
+                        setSelectedSurveyor('');
+                        setSelectedStatus('all');
+                    }}
+                    style={{ marginLeft: 'auto', minHeight: 'auto' }}
+                >
+                    Reset
+                </button>
+            </div>
+
 
             {/* Survey List */}
             <div className="card">
@@ -141,20 +164,25 @@ function SupervisorSurveyList() {
                                         <div className="text-sm text-muted">{survey.pincode}</div>
                                     </td>
                                     <td>
-                                        <span className={`badge badge-${survey.status.toLowerCase()}`}>
-                                            {survey.status}
-                                        </span>
-                                        {survey.location_warning && (
-                                            <span className="badge badge-flagged" style={{ marginLeft: '4px' }}>
-                                                ⚠️ GPS
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+                                            <span className={`badge badge-${survey.status.toLowerCase()}`}>
+                                                {survey.status}
                                             </span>
-                                        )}
-                                        {/* New House Badge Logic: !address && status === 'FLAGGED' */}
-                                        {!survey.address && survey.status === 'FLAGGED' && (
-                                            <span className="badge badge-flagged" style={{ marginLeft: '4px', backgroundColor: '#e74c3c' }}>
-                                                🏠 New
-                                            </span>
-                                        )}
+                                            {survey.location_warning && (
+                                                <span className="badge badge-flagged" style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '2px'
+                                                }} title="GPS location mismatch">
+                                                    ⚠️ <span style={{ fontSize: '0.8em' }}>GPS</span>
+                                                </span>
+                                            )}
+                                            {survey.is_new_house && (
+                                                <span className="badge badge-info" style={{ backgroundColor: '#17a2b8', color: 'white' }}>
+                                                    🏠 New
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
                                     <td>
                                         {survey.submitted_at
@@ -171,7 +199,8 @@ function SupervisorSurveyList() {
                             ))}
                         </tbody>
                     </table>
-                )}
+                )
+                }
             </div>
         </div>
     );

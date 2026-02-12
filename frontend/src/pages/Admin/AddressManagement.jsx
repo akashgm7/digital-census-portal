@@ -4,6 +4,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { addressAPI, zoneAPI } from '../../services/api';
+import ConfirmationModal from '../../components/ConfirmationModal';
 
 function AddressManagement() {
     const [addresses, setAddresses] = useState([]);
@@ -24,6 +25,9 @@ function AddressManagement() {
         status: 'ACTIVE'
     });
 
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [addressToDelete, setAddressToDelete] = useState(null);
+
     // Filters
     const [searchTerm, setSearchTerm] = useState('');
     const [filterZone, setFilterZone] = useState('');
@@ -43,9 +47,14 @@ function AddressManagement() {
             const addrData = addrRes.data.results || addrRes.data || [];
             setAddresses(addrData);
             setZones(zonesRes.data.results || zonesRes.data || []);
+            setAddresses(addrData);
+            setZones(zonesRes.data.results || zonesRes.data || []);
         } catch (err) {
-            setError('Failed to load data.');
             console.error(err);
+            const msg = err.response
+                ? `Status: ${err.response.status}, Data: ${JSON.stringify(err.response.data)}`
+                : err.message;
+            setError('Failed to load data: ' + msg);
         }
         setLoading(false);
     };
@@ -85,11 +94,16 @@ function AddressManagement() {
         }
 
         try {
+            const payload = {
+                ...formData,
+                zone_id: formData.zone
+            };
+
             if (editingId) {
-                await addressAPI.update(editingId, formData);
+                await addressAPI.update(editingId, payload);
                 setSuccess('Address updated successfully.');
             } else {
-                await addressAPI.create(formData);
+                await addressAPI.create(payload);
                 setSuccess('Address created successfully.');
             }
             resetForm();
@@ -114,15 +128,23 @@ function AddressManagement() {
         setShowCreateForm(true);
     };
 
-    const handleDelete = async (id) => {
-        if (!window.confirm('Are you sure you want to delete this address?')) return;
+    const handleDelete = (id) => {
+        setAddressToDelete(id);
+        setShowDeleteModal(true);
+    };
+
+    const confirmDelete = async () => {
+        if (!addressToDelete) return;
         setError('');
         try {
-            await addressAPI.delete(id);
+            await addressAPI.delete(addressToDelete);
             setSuccess('Address deleted.');
+            setShowDeleteModal(false);
+            setAddressToDelete(null);
             fetchData();
         } catch (err) {
             setError('Failed to delete address.');
+            setShowDeleteModal(false);
         }
     };
 
@@ -134,7 +156,7 @@ function AddressManagement() {
             (addr.building_number || '').toLowerCase().includes(searchTerm.toLowerCase());
 
         const matchesZone = filterZone === '' ||
-            (addr.zone && addr.zone.toString() === filterZone);
+            (addr.zone_id && addr.zone_id.toString() === filterZone);
 
         const matchesStatus = filterStatus === '' || addr.status === filterStatus;
 
@@ -159,6 +181,17 @@ function AddressManagement() {
 
             {error && <div className="alert alert-error">{error}</div>}
             {success && <div className="alert alert-success" style={{ marginBottom: '16px' }}>{success}</div>}
+
+            <ConfirmationModal
+                isOpen={showDeleteModal}
+                title="Delete Address"
+                message="Are you sure you want to delete this address? This action cannot be undone."
+                confirmText="Delete"
+                cancelText="Cancel"
+                type="error"
+                onConfirm={confirmDelete}
+                onCancel={() => setShowDeleteModal(false)}
+            />
 
             {/* Filters */}
             {!showCreateForm && (
@@ -327,7 +360,6 @@ function AddressManagement() {
                                 <th>Zone</th>
                                 <th>Landmark</th>
                                 <th>Status</th>
-                                <th>Review</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -341,19 +373,12 @@ function AddressManagement() {
                                         <td>{addr.landmark || '-'}</td>
                                         <td>
                                             <span className={`badge ${addr.status === 'ACTIVE' ? 'badge-verified' :
-                                                    addr.status === 'NEW' ? 'badge-info' :
-                                                        addr.status === 'MODIFIED' ? 'badge-draft' :
-                                                            'badge-flagged'
+                                                addr.status === 'NEW' ? 'badge-info' :
+                                                    addr.status === 'MODIFIED' ? 'badge-draft' :
+                                                        'badge-flagged'
                                                 }`}>
                                                 {addr.status}
                                             </span>
-                                        </td>
-                                        <td>
-                                            {addr.needs_review ? (
-                                                <span className="badge badge-flagged">Needs Review</span>
-                                            ) : (
-                                                <span style={{ color: 'var(--color-text-muted)' }}>—</span>
-                                            )}
                                         </td>
                                         <td style={{ display: 'flex', gap: '8px' }}>
                                             <button
